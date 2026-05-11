@@ -34,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(analyze.router)
     app.include_router(cases.router)
     app.include_router(admin.router)
+    app.include_router(admin.dev_router)
 
     return app
 
