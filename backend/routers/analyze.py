@@ -13,7 +13,7 @@ from models.schemas import (
 )
 from routers.cases import find_similar_cases
 from services.db import get_connection
-from services.llm_engine import mock_normalize
+from services.llm_engine import normalize_with_llm
 from services.taxonomy import find_prevention_candidates
 
 router = APIRouter(prefix="/api", tags=["analyze"])
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api", tags=["analyze"])
 
 @router.post("/normalize", response_model=NormalizedInput)
 def normalize(request: NormalizeRequest) -> NormalizedInput:
-    return mock_normalize(request)
+    return normalize_with_llm(request)
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
