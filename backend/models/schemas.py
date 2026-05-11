@@ -34,6 +34,7 @@ class AnalyzeMeta(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
+    raw_input: str | None = None
     normalized: NormalizedInput
     meta: AnalyzeMeta
 

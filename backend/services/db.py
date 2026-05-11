@@ -1,4 +1,5 @@
 import os
+import sqlite3
 from pathlib import Path
 
 
@@ -24,6 +25,19 @@ def database_is_configured() -> bool:
     return bool(get_database_url())
 
 
+def get_connection() -> sqlite3.Connection:
+    database_path = get_database_path()
+    if not database_path.exists():
+        raise FileNotFoundError(
+            f"SQLite database not found: {database_path}. "
+            "Run `uv run python scripts/init_db.py` from the backend directory."
+        )
+
+    connection = sqlite3.connect(database_path)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
 def connect() -> None:
-    # TODO: Add SQLite connection handling in the database implementation step.
+    # TODO: Preserve the existing placeholder until a wider DB lifecycle is added.
     return None
