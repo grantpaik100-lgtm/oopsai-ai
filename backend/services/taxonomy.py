@@ -67,6 +67,7 @@ def find_prevention_candidates(
     hazard_middle_category: str | None,
     environment_factors: list[str],
     human_factors: list[str],
+    secondary_hazards: list[tuple[str, str]] | None = None,
     limit: int = 3,
 ) -> list[PreventionItem]:
     search_values = [
@@ -75,6 +76,8 @@ def find_prevention_candidates(
         *environment_factors,
         *human_factors,
     ]
+    for major, middle in secondary_hazards or []:
+        search_values.extend([major, middle])
     terms = [value.strip() for value in search_values if value and value.strip()]
 
     try:

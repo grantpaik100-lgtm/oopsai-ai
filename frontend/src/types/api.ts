@@ -22,6 +22,8 @@ export interface NormalizedInput {
   equipment?: string | null;
   confidence: number;
   ai_recommendations: AiRecommendations;
+  secondary_hazards?: SecondaryHazard[];
+  missing_info_questions?: MissingInfoQuestion[];
 }
 
 export interface AiRecommendations {
@@ -33,6 +35,18 @@ export interface AiRecommendations {
   equipment: string[];
   hazard_raw_matched: string;
   reason: string;
+}
+
+export interface MissingInfoQuestion {
+  field: string;
+  question: string;
+  reason: string;
+}
+
+export interface SecondaryHazard {
+  major: string;
+  middle: string;
+  evidence: string;
 }
 
 export interface AnalyzeMeta {
@@ -54,6 +68,7 @@ export interface PreventionItem {
   content: string;
   expected_action_result: Record<string, string>;
   priority: number;
+  recommended_reason?: string | null;
 }
 
 export interface SimilarCase {
@@ -66,6 +81,26 @@ export interface SimilarCase {
 export interface RiskScore {
   level: string;
   score: number;
+  reasons?: string[];
+}
+
+export interface ActionGuide {
+  summary: string;
+  immediate_actions: string[];
+  follow_up_actions: string[];
+  expected_result_example: string;
+}
+
+export interface PredictedSeverity {
+  grade: "A" | "B" | "C" | "D" | "E" | null;
+  label: string;
+  is_actual_damage: false;
+  confidence: "high" | "medium" | "low";
+  prediction_reason: string[];
+  why_not_higher: string;
+  why_not_lower: string;
+  missing_information: string[];
+  validation_warnings: string[];
 }
 
 export interface AnalyzeResponse {
@@ -74,6 +109,10 @@ export interface AnalyzeResponse {
   prevention_list: PreventionItem[];
   similar_cases: SimilarCase[];
   risk_score: RiskScore;
+  predicted_severity?: PredictedSeverity | null;
+  action_guide?: ActionGuide | null;
+  analysis_reason?: string | null;
+  debug?: Record<string, string> | null;
 }
 
 export interface DbSummary {

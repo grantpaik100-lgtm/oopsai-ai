@@ -98,6 +98,34 @@ STANDARD_AI_RECOMMENDATIONS = {
     "equipment": STANDARD_EQUIPMENT_VALUES,
 }
 
+STANDARD_HAZARD_MAJOR_VALUES = {
+    "장비요인",
+    "보호구요인",
+    "환경요인",
+    "인적요인",
+    "절차요인",
+    "통제요인",
+    "숙련도요인",
+    "정비요인",
+    "기상요인",
+    "작업환경요인",
+    "기타",
+}
+
+STANDARD_HAZARD_MIDDLE_VALUES = STANDARD_AI_RECOMMENDATIONS["hazard"]
+
+STANDARD_MISSING_INFO_FIELDS = {
+    "accident_type",
+    "work_type",
+    "hazard",
+    "environment_factor",
+    "human_factor",
+    "equipment",
+    "occurred_location",
+    "occurred_at",
+    "기타",
+}
+
 
 @dataclass
 class EvaluationResult:
@@ -116,8 +144,6 @@ SCENARIOS: list[dict[str, Any]] = [
         "fields": {
             "work_type_raw": "훈련·사격 중",
             "hazard_raw": ["보호장비를 안 했다", "통제나 감독이 없었다"],
-            "environment_factor_raw": ["해당 없음"],
-            "human_factor_raw": ["확인을 안 했다"],
             "equipment_raw": "총기류",
         },
         "expected": {
@@ -130,8 +156,12 @@ SCENARIOS: list[dict[str, Any]] = [
                 "accident_type": ["충격"],
                 "work_type": ["훈련·사격"],
                 "hazard": ["보호장비미착용", "작업통제부족"],
+                "human_factors": [],
                 "equipment": ["총기류"],
             },
+            "secondary_hazards": [{"major": "통제요인", "middle": "작업통제부족"}],
+            "human_factors": [],
+            "forbid_confirm_human_factor": True,
         },
     },
     {
@@ -544,6 +574,102 @@ SCENARIOS: list[dict[str, Any]] = [
             "equipment": None,
         },
     },
+    {
+        "id": "S039",
+        "name": "정비 중 정보 부족",
+        "situation_text": "정비 중 사고 날 뻔했습니다.",
+        "fields": {},
+        "expected": {
+            "accident_type": "기타",
+            "expected_missing_fields": ["accident_type", "equipment"],
+        },
+    },
+    {
+        "id": "S040",
+        "name": "훈련 중 위험 정보 부족",
+        "situation_text": "훈련 중 위험했습니다.",
+        "fields": {},
+        "expected": {
+            "accident_type": "기타",
+            "expected_missing_fields": ["accident_type", "hazard", "equipment"],
+        },
+    },
+    {
+        "id": "N041",
+        "name": "차량 후진 신호수 부재",
+        "situation_text": "보급 트럭이 후진하다가 뒤쪽에서 작업하던 병사 2명을 못 보고 거의 들이받을 뻔했습니다. 신호수는 없었습니다.",
+        "fields": {},
+        "expected": {
+            "accident_type": "교통",
+            "equipment": "차량·트럭",
+            "hazard_either_includes": ["작업통제부족", "차량운행위험"],
+        },
+    },
+    {
+        "id": "N042",
+        "name": "고소작업 안전벨트 미착용",
+        "situation_text": "건물 외벽 보수 작업 중 병사가 안전벨트 없이 높은 곳에서 작업하고 있었습니다.",
+        "fields": {},
+        "expected": {
+            "accident_type": "추락",
+            "hazard_major_category": "보호구요인",
+            "hazard_middle_category": "보호장비미착용",
+            "hazard_either_includes": ["고소작업위험"],
+        },
+    },
+    {
+        "id": "N043",
+        "name": "탄피 비산 안면 충격",
+        "situation_text": "사격 중 탄피가 얼굴 쪽으로 튀었고 보호안경을 착용하지 않아 다칠 뻔했습니다.",
+        "fields": {},
+        "expected": {
+            "accident_type": "충격",
+            "work_type": "훈련·사격",
+            "hazard_middle_category": "보호장비미착용",
+            "equipment": "총기류",
+        },
+    },
+    {
+        "id": "N044",
+        "name": "지게차 보행자 충돌",
+        "situation_text": "지게차가 물자를 운반하던 중 보행자를 보지 못해 충돌할 뻔했습니다.",
+        "fields": {},
+        "expected": {
+            "accident_type": "교통",
+            "equipment": "크레인·지게차",
+            "hazard_middle_category": "차량운행위험",
+        },
+    },
+    {
+        "id": "N045",
+        "name": "밀폐공간 환기 부족",
+        "situation_text": "밀폐된 공간에서 작업 중 환기가 되지 않아 어지러움을 느꼈습니다.",
+        "fields": {},
+        "expected": {
+            "accident_type": "질식·익사",
+        },
+    },
+    {
+        "id": "N046",
+        "name": "적재물 낙하 위험",
+        "situation_text": "창고 선반 위 물자가 제대로 고정되지 않아 아래 작업자 쪽으로 떨어질 뻔했습니다.",
+        "fields": {},
+        "expected": {
+            "accident_type": "충격",
+            "hazard_middle_category": "낙하물",
+        },
+    },
+    {
+        "id": "N047",
+        "name": "회전부 정비 중 손 끼임",
+        "situation_text": "정비 중 회전부가 완전히 멈추지 않은 상태에서 손을 넣었다가 손가락이 끼일 뻔했습니다.",
+        "fields": {},
+        "expected": {
+            "accident_type": "끼임",
+            "work_type": "장비점검·정비",
+            "hazard_middle_category": ["사전점검미흡", "안전수칙미준수"],
+        },
+    },
 ]
 
 
@@ -609,6 +735,8 @@ def compare_expected(expected: dict[str, Any], actual: NormalizedInput) -> list[
         failures.append(f"equipment non-standard actual={actual.equipment}")
 
     failures.extend(compare_ai_recommendations(actual))
+    failures.extend(compare_secondary_hazards(actual))
+    failures.extend(compare_missing_info_questions(actual))
 
     if actual.accident_type != expected["accident_type"]:
         failures.append(f"accident_type expected={expected['accident_type']} actual={actual.accident_type}")
@@ -635,16 +763,60 @@ def compare_expected(expected: dict[str, Any], actual: NormalizedInput) -> list[
     if "equipment" in expected and actual.equipment != expected["equipment"]:
         failures.append(f"equipment expected={expected['equipment']} actual={actual.equipment}")
 
+    if "human_factors" in expected and actual.human_factors != expected["human_factors"]:
+        failures.append(f"human_factors expected={expected['human_factors']} actual={actual.human_factors}")
+
     expected_ai = expected.get("ai_recommendations")
     if isinstance(expected_ai, dict):
         actual_ai = actual.ai_recommendations.model_dump()
         for key, expected_values in expected_ai.items():
             actual_values = actual_ai.get(key, [])
+            if expected_values == [] and actual_values != []:
+                failures.append(f"ai_recommendations.{key} expected=[] actual={actual_values}")
+                continue
             for expected_value in expected_values:
                 if expected_value not in actual_values:
                     failures.append(
                         f"ai_recommendations.{key} missing expected={expected_value} actual={actual_values}"
                     )
+
+    expected_secondary = expected.get("secondary_hazards")
+    if isinstance(expected_secondary, list):
+        actual_pairs = {(item.major, item.middle) for item in actual.secondary_hazards}
+        for expected_item in expected_secondary:
+            pair = (expected_item.get("major"), expected_item.get("middle"))
+            if pair not in actual_pairs:
+                failures.append(f"secondary_hazards missing expected={pair} actual={sorted(actual_pairs)}")
+        for item in actual.secondary_hazards:
+            if not item.evidence:
+                failures.append(f"secondary_hazards evidence missing actual={item.model_dump()}")
+
+    expected_missing_fields = expected.get("expected_missing_fields")
+    if isinstance(expected_missing_fields, list):
+        actual_fields = {item.field for item in actual.missing_info_questions}
+        if not actual_fields.intersection(expected_missing_fields):
+            failures.append(
+                f"missing_info_questions field mismatch expected_any={expected_missing_fields} actual={sorted(actual_fields)}"
+            )
+
+    hazard_either = expected.get("hazard_either_includes")
+    if isinstance(hazard_either, list):
+        all_actual_middles = {actual.hazard_middle_category}
+        for item in actual.secondary_hazards:
+            all_actual_middles.add(item.middle)
+        for expected_middle in hazard_either:
+            if expected_middle not in all_actual_middles:
+                failures.append(
+                    f"hazard_either_includes missing expected={expected_middle} "
+                    f"actual_primary={actual.hazard_middle_category} "
+                    f"actual_secondary={[item.middle for item in actual.secondary_hazards]}"
+                )
+
+    if expected.get("forbid_confirm_human_factor"):
+        if "확인미흡" in actual.human_factors:
+            failures.append("human_factors over-inferred 확인미흡")
+        if "확인미흡" in actual.ai_recommendations.human_factors:
+            failures.append("ai_recommendations.human_factors over-inferred 확인미흡")
 
     return failures
 
@@ -660,6 +832,36 @@ def compare_ai_recommendations(actual: NormalizedInput) -> list[str]:
         for value in values:
             if value not in allowed_values:
                 failures.append(f"ai_recommendations.{key} non-standard actual={value}")
+    return failures
+
+
+def compare_secondary_hazards(actual: NormalizedInput) -> list[str]:
+    failures: list[str] = []
+    primary_pair = (actual.hazard_major_category, actual.hazard_middle_category)
+    seen: set[tuple[str, str]] = set()
+    for item in actual.secondary_hazards:
+        pair = (item.major, item.middle)
+        if item.major not in STANDARD_HAZARD_MAJOR_VALUES:
+            failures.append(f"secondary_hazards.major non-standard actual={item.major}")
+        if item.middle not in STANDARD_HAZARD_MIDDLE_VALUES:
+            failures.append(f"secondary_hazards.middle non-standard actual={item.middle}")
+        if pair == primary_pair:
+            failures.append(f"secondary_hazards duplicates primary actual={pair}")
+        if pair in seen:
+            failures.append(f"secondary_hazards duplicate actual={pair}")
+        seen.add(pair)
+    return failures
+
+
+def compare_missing_info_questions(actual: NormalizedInput) -> list[str]:
+    failures: list[str] = []
+    for item in actual.missing_info_questions:
+        if item.field not in STANDARD_MISSING_INFO_FIELDS:
+            failures.append(f"missing_info_questions.field non-standard actual={item.field}")
+        if not item.question:
+            failures.append(f"missing_info_questions.question empty actual={item.model_dump()}")
+        if not item.reason:
+            failures.append(f"missing_info_questions.reason empty actual={item.model_dump()}")
     return failures
 
 
@@ -694,6 +896,8 @@ def print_result(result: EvaluationResult) -> None:
     )
     print(f"  confidence: {actual.confidence:.2f}")
     print(f"  ai_recommendations: {actual.ai_recommendations.model_dump()}")
+    print(f"  secondary_hazards: {[item.model_dump() for item in actual.secondary_hazards]}")
+    print(f"  missing_info_questions: {[item.model_dump() for item in actual.missing_info_questions]}")
     print(f"  reason: {actual.ai_recommendations.reason or result.reason}")
     if result.failures:
         print(f"  failures: {'; '.join(result.failures)}")
@@ -719,6 +923,8 @@ def print_fail_case_summary(results: list[EvaluationResult]) -> None:
         print(f"  actual equipment:   {actual.equipment}")
         print(f"  confidence: {actual.confidence:.2f}")
         print(f"  reason: {actual.ai_recommendations.reason or '-'}")
+        print(f"  secondary_hazards: {[item.model_dump() for item in actual.secondary_hazards]}")
+        print(f"  missing_info_questions: {[item.model_dump() for item in actual.missing_info_questions]}")
         print(f"  rule_reason: {result.reason}")
         print(f"  suggested_rule_gap: {suggest_rule_gap(expected, actual)}")
 

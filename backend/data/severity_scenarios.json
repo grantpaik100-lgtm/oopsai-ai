@@ -1,0 +1,570 @@
+[
+  {
+    "id": "SV001",
+    "name": "탄약고 폭발물 신관 충격 및 다수 인원 노출",
+    "severity_group": "A",
+    "situation_text": "탄약고에서 폭발물 신관 부위가 충격을 받을 뻔했고 주변에 다수 인원이 작업 중이었습니다.",
+    "normalized": {
+      "accident_type": "폭발·파열",
+      "work_type": "기타",
+      "hazard_major_category": "장비요인",
+      "hazard_middle_category": "장비결함",
+      "secondary_hazards": [
+        {
+          "major": "통제요인",
+          "middle": "작업통제부족",
+          "evidence": "주변에 다수 인원이 작업 중이었음"
+        }
+      ],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": "기타"
+    },
+    "expected": {
+      "grade": "A",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["폭발", "신관", "다수", "탄약고"],
+      "why_not_higher_keywords": [],
+      "why_not_lower_keywords": ["다수", "폭발", "중상", "사망"],
+      "missing_information_keywords": ["정확한 노출 인원", "폭발물 종류"],
+      "validation_warning_keywords": ["A등급은 폭발 가능성과 다수 인원 노출 근거가 있을 때만 허용"]
+    },
+    "notes": "아차사고이므로 실제 피해가 아니라 폭발 발생 시 예상 피해등급이다. 폭발물 신관 충격과 다수 인원 노출이 있어 A 가능성을 평가한다."
+  },
+  {
+    "id": "SV002",
+    "name": "장갑차 훈련 중 다수 인원 압착·충돌 위험",
+    "severity_group": "A",
+    "situation_text": "장갑차 기동훈련 중 통제가 되지 않아 주변 병력 여러 명이 장갑차와 충돌하거나 깔릴 뻔했습니다.",
+    "normalized": {
+      "accident_type": "교통",
+      "work_type": "훈련·사격",
+      "hazard_major_category": "통제요인",
+      "hazard_middle_category": "작업통제부족",
+      "secondary_hazards": [
+        {
+          "major": "통제요인",
+          "middle": "차량운행위험",
+          "evidence": "장갑차 기동 중 주변 병력과 충돌할 뻔함"
+        }
+      ],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": "차량·트럭"
+    },
+    "expected": {
+      "grade": "A",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["장갑차", "다수", "압착", "충돌"],
+      "why_not_higher_keywords": [],
+      "why_not_lower_keywords": ["대형 차량", "다수 인원", "사망 가능성"],
+      "missing_information_keywords": ["노출 인원 수", "차량 속도"],
+      "validation_warning_keywords": ["다수 인원 노출 근거 없이 A등급을 남발하지 말 것"]
+    },
+    "notes": "대형 군용차량과 다수 인원 충돌·압착 가능성이 있어 A등급 후보로 둔다."
+  },
+  {
+    "id": "SV003",
+    "name": "탄약 운반 중 지게차 충돌로 폭발물 손상 위험",
+    "severity_group": "B",
+    "situation_text": "탄약을 운반하던 지게차가 탄약 적재함과 충돌할 뻔했고 주변에 작업자 여러 명이 있었습니다.",
+    "normalized": {
+      "accident_type": "폭발·파열",
+      "work_type": "운반작업",
+      "hazard_major_category": "통제요인",
+      "hazard_middle_category": "차량운행위험",
+      "secondary_hazards": [
+        {
+          "major": "통제요인",
+          "middle": "작업통제부족",
+          "evidence": "주변 작업자 통제 부족"
+        }
+      ],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": "크레인·지게차"
+    },
+    "expected": {
+      "grade": "B",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["탄약", "지게차", "폭발", "주변 작업자"],
+      "why_not_higher_keywords": ["3명 이상 사망", "7명 이상 중상", "명시되지 않음"],
+      "why_not_lower_keywords": ["폭발물", "다수 작업자", "중상 가능성"],
+      "missing_information_keywords": ["탄약 종류", "주변 인원 수"],
+      "validation_warning_keywords": []
+    },
+    "notes": "폭발물과 운반장비 충돌 위험이 결합되어 B등급 후보로 둔다."
+  },
+  {
+    "id": "SV004",
+    "name": "차량 후진 중 5~6명 작업자 충돌 위험",
+    "severity_group": "B",
+    "situation_text": "보급 트럭이 후진하다가 뒤쪽에서 작업 중이던 5~6명의 병사를 들이받을 뻔했습니다. 신호수는 없었습니다.",
+    "normalized": {
+      "accident_type": "교통",
+      "work_type": "차량운전·이동",
+      "hazard_major_category": "통제요인",
+      "hazard_middle_category": "작업통제부족",
+      "secondary_hazards": [
+        {
+          "major": "통제요인",
+          "middle": "차량운행위험",
+          "evidence": "트럭 후진 중 다수 작업자와 충돌 위험"
+        }
+      ],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": "차량·트럭"
+    },
+    "expected": {
+      "grade": "B",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["차량", "후진", "5", "6", "신호수"],
+      "why_not_higher_keywords": ["3명 이상 사망", "7명 이상 중상", "명시되지 않음"],
+      "why_not_lower_keywords": ["5~6명", "중상 가능성", "차량 충돌"],
+      "missing_information_keywords": ["차량 속도", "정확한 노출 인원"],
+      "validation_warning_keywords": []
+    },
+    "notes": "5~6명 중상 가능성이 있는 차량 충돌 아차사고로 B등급 후보."
+  },
+  {
+    "id": "SV005",
+    "name": "밀폐공간 작업 중 환기 불량 및 5명 투입",
+    "severity_group": "B",
+    "situation_text": "밀폐공간 작업 중 환기가 되지 않는 상태에서 5명이 투입되어 어지러움을 느꼈습니다.",
+    "normalized": {
+      "accident_type": "질식·익사",
+      "work_type": "기타",
+      "hazard_major_category": "작업환경요인",
+      "hazard_middle_category": "환기부족",
+      "secondary_hazards": [],
+      "environment_factors": ["환기부족"],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": "B",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["밀폐공간", "환기", "5명", "질식"],
+      "why_not_higher_keywords": ["7명 이상 중상", "명시되지 않음"],
+      "why_not_lower_keywords": ["5명", "질식", "밀폐공간"],
+      "missing_information_keywords": ["산소 농도", "작업 시간"],
+      "validation_warning_keywords": []
+    },
+    "notes": "밀폐공간 질식 위험과 5명 노출이 있어 B등급 후보로 둔다."
+  },
+  {
+    "id": "SV006",
+    "name": "사격 중 안구 손상 위험",
+    "severity_group": "C",
+    "situation_text": "사격훈련 중 총기 부품이 튀어 눈을 다칠 뻔했습니다. 보호안경을 착용하지 않았습니다.",
+    "normalized": {
+      "accident_type": "충격",
+      "work_type": "훈련·사격",
+      "hazard_major_category": "보호구요인",
+      "hazard_middle_category": "보호장비미착용",
+      "secondary_hazards": [],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": "총기류"
+    },
+    "expected": {
+      "grade": "C",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["안구", "보호장비미착용", "충격"],
+      "why_not_higher_keywords": ["다수 사망", "다수 중상", "대규모 물적피해"],
+      "why_not_lower_keywords": ["안구 손상", "중상 가능성"],
+      "missing_information_keywords": ["비산 강도", "보호구 상태"],
+      "validation_warning_keywords": []
+    },
+    "notes": "안구 손상은 중상 가능성이 있어 C등급 후보."
+  },
+  {
+    "id": "SV007",
+    "name": "고소작업 안전벨트 미착용",
+    "severity_group": "C",
+    "situation_text": "건물 외벽 보수 작업 중 병사가 안전벨트 없이 높은 곳에서 작업하고 있었습니다.",
+    "normalized": {
+      "accident_type": "추락",
+      "work_type": "장비점검·정비",
+      "hazard_major_category": "보호구요인",
+      "hazard_middle_category": "보호장비미착용",
+      "secondary_hazards": [
+        {
+          "major": "작업환경요인",
+          "middle": "고소작업위험",
+          "evidence": "높은 곳에서 작업"
+        }
+      ],
+      "environment_factors": ["고소작업환경"],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": "C",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["추락", "안전벨트", "고소작업"],
+      "why_not_higher_keywords": ["다수", "사망", "명시되지 않음"],
+      "why_not_lower_keywords": ["추락", "중상 가능성"],
+      "missing_information_keywords": ["작업 높이", "추락 방지 설비"],
+      "validation_warning_keywords": []
+    },
+    "notes": "고소작업 추락은 중상 가능성이 있어 C등급 후보."
+  },
+  {
+    "id": "SV008",
+    "name": "전원 미차단 정비 감전 위험",
+    "severity_group": "C",
+    "situation_text": "전기장비 정비 중 전원을 차단하지 않고 커버를 열어 감전될 뻔했습니다.",
+    "normalized": {
+      "accident_type": "감전",
+      "work_type": "장비점검·정비",
+      "hazard_major_category": "절차요인",
+      "hazard_middle_category": "안전수칙미준수",
+      "secondary_hazards": [
+        {
+          "major": "정비요인",
+          "middle": "사전점검미흡",
+          "evidence": "전원 차단 미실시"
+        }
+      ],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": "기타"
+    },
+    "expected": {
+      "grade": "C",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["감전", "전원", "정비"],
+      "why_not_higher_keywords": ["다수", "사망", "명시되지 않음"],
+      "why_not_lower_keywords": ["감전", "중상 가능성"],
+      "missing_information_keywords": ["전압", "차단 여부"],
+      "validation_warning_keywords": []
+    },
+    "notes": "전원 미차단 정비 중 감전은 중상 가능성이 있어 C."
+  },
+  {
+    "id": "SV009",
+    "name": "절단기 손가락 절단 위험",
+    "severity_group": "C",
+    "situation_text": "절단기 작업 중 보호장갑을 착용하지 않은 상태에서 손가락이 날에 닿을 뻔했습니다.",
+    "normalized": {
+      "accident_type": "절단·베임",
+      "work_type": "장비점검·정비",
+      "hazard_major_category": "보호구요인",
+      "hazard_middle_category": "보호장비미착용",
+      "secondary_hazards": [],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": "전동공구·절단기"
+    },
+    "expected": {
+      "grade": "C",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["절단", "손가락", "절단기"],
+      "why_not_higher_keywords": ["다수", "사망", "대규모"],
+      "why_not_lower_keywords": ["손가락 절단", "중상 가능성"],
+      "missing_information_keywords": ["절단 깊이", "보호구 상태"],
+      "validation_warning_keywords": []
+    },
+    "notes": "전동 절단기 손가락 절단 가능성은 중상 가능성이 있어 C."
+  },
+  {
+    "id": "SV010",
+    "name": "지게차 보행자 충돌 단일 인원 중상 위험",
+    "severity_group": "C",
+    "situation_text": "지게차가 물자를 운반하던 중 보행자를 보지 못해 충돌할 뻔했습니다.",
+    "normalized": {
+      "accident_type": "교통",
+      "work_type": "운반작업",
+      "hazard_major_category": "통제요인",
+      "hazard_middle_category": "차량운행위험",
+      "secondary_hazards": [],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": "크레인·지게차"
+    },
+    "expected": {
+      "grade": "C",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["지게차", "충돌", "보행자"],
+      "why_not_higher_keywords": ["다수", "사망", "명시되지 않음"],
+      "why_not_lower_keywords": ["중장비", "중상 가능성"],
+      "missing_information_keywords": ["지게차 속도", "보행자 위치"],
+      "validation_warning_keywords": []
+    },
+    "notes": "단일 인원 지게차 충돌 중상 가능성으로 C."
+  },
+  {
+    "id": "SV011",
+    "name": "적재물 낙하로 머리 충격 위험",
+    "severity_group": "C",
+    "situation_text": "창고 선반 위 물자가 제대로 고정되지 않아 아래 작업자의 머리 쪽으로 떨어질 뻔했습니다.",
+    "normalized": {
+      "accident_type": "충격",
+      "work_type": "운반작업",
+      "hazard_major_category": "작업환경요인",
+      "hazard_middle_category": "낙하물",
+      "secondary_hazards": [],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": "C",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["낙하물", "머리", "충격"],
+      "why_not_higher_keywords": ["다수", "사망", "대규모"],
+      "why_not_lower_keywords": ["머리 충격", "중상 가능성"],
+      "missing_information_keywords": ["낙하 높이", "물자 무게", "안전모 착용 여부"],
+      "validation_warning_keywords": []
+    },
+    "notes": "머리 부위 낙하물 충격은 중상 가능성이 있어 C."
+  },
+  {
+    "id": "SV012",
+    "name": "복도 물기 낙상 위험",
+    "severity_group": "D",
+    "situation_text": "생활관 복도에 물기가 있어 지나가던 병사가 미끄러져 넘어질 뻔했습니다.",
+    "normalized": {
+      "accident_type": "낙상",
+      "work_type": "기타",
+      "hazard_major_category": "작업환경요인",
+      "hazard_middle_category": "미끄럼/지면불량",
+      "secondary_hazards": [],
+      "environment_factors": ["미끄럼/지면불량"],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": "D",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["미끄럼", "낙상", "경상"],
+      "why_not_higher_keywords": ["중상", "사망", "명시되지 않음"],
+      "why_not_lower_keywords": ["넘어짐", "근무 제한 가능성"],
+      "missing_information_keywords": ["넘어진 높이", "충격 부위"],
+      "validation_warning_keywords": []
+    },
+    "notes": "단일 인원 낙상으로 경상~단기 근무 제한 가능성이 있어 D."
+  },
+  {
+    "id": "SV013",
+    "name": "취사 중 뜨거운 물 또는 기름 화상 위험",
+    "severity_group": "D",
+    "situation_text": "취사장에서 뜨거운 물통을 옮기다가 손에 쏟을 뻔했습니다.",
+    "normalized": {
+      "accident_type": "화재·화상",
+      "work_type": "취사",
+      "hazard_major_category": "작업환경요인",
+      "hazard_middle_category": "기타",
+      "secondary_hazards": [],
+      "environment_factors": ["고온물질"],
+      "human_factors": [],
+      "equipment": "조리기구"
+    },
+    "expected": {
+      "grade": "D",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["화상", "뜨거운", "손"],
+      "why_not_higher_keywords": ["중상", "다수", "대규모"],
+      "why_not_lower_keywords": ["화상", "치료 가능성"],
+      "missing_information_keywords": ["화상 범위", "보호장갑 착용 여부"],
+      "validation_warning_keywords": []
+    },
+    "notes": "단일 인원 손 부위 화상 가능성으로 D."
+  },
+  {
+    "id": "SV014",
+    "name": "야간 조도 부족으로 장애물 걸림 위험",
+    "severity_group": "D",
+    "situation_text": "야간 작업 중 조명이 부족해 바닥 장애물을 보지 못하고 넘어질 뻔했습니다.",
+    "normalized": {
+      "accident_type": "낙상",
+      "work_type": "기타",
+      "hazard_major_category": "기상요인",
+      "hazard_middle_category": "야간/조도불량",
+      "secondary_hazards": [
+        {
+          "major": "작업환경요인",
+          "middle": "미끄럼/지면불량",
+          "evidence": "바닥 장애물을 보지 못함"
+        }
+      ],
+      "environment_factors": ["야간/조도불량"],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": "D",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["야간", "조도", "낙상"],
+      "why_not_higher_keywords": ["중상", "사망", "명시되지 않음"],
+      "why_not_lower_keywords": ["넘어짐", "근무 제한 가능성"],
+      "missing_information_keywords": ["장애물 종류", "충격 부위"],
+      "validation_warning_keywords": []
+    },
+    "notes": "조도 부족으로 인한 낙상 위험은 D."
+  },
+  {
+    "id": "SV015",
+    "name": "무거운 탄약박스 단독 운반 허리 부상 위험",
+    "severity_group": "D",
+    "situation_text": "무거운 탄약박스를 혼자 들다가 허리를 다칠 뻔했습니다.",
+    "normalized": {
+      "accident_type": "과부하·온열",
+      "work_type": "운반작업",
+      "hazard_major_category": "인적요인",
+      "hazard_middle_category": "단독작업",
+      "secondary_hazards": [],
+      "environment_factors": [],
+      "human_factors": ["단독작업"],
+      "equipment": null
+    },
+    "expected": {
+      "grade": "D",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["허리", "중량물", "단독"],
+      "why_not_higher_keywords": ["중상", "사망", "명시되지 않음"],
+      "why_not_lower_keywords": ["허리 부상", "근무 제한"],
+      "missing_information_keywords": ["중량", "운반 거리"],
+      "validation_warning_keywords": []
+    },
+    "notes": "허리 부상 및 단기 근무 제한 가능성으로 D."
+  },
+  {
+    "id": "SV016",
+    "name": "정비 중 회전부 끼임 위험",
+    "severity_group": "D",
+    "situation_text": "정비 중 회전부가 완전히 멈추지 않은 상태에서 손을 넣었다가 손가락이 끼일 뻔했습니다.",
+    "normalized": {
+      "accident_type": "끼임",
+      "work_type": "장비점검·정비",
+      "hazard_major_category": "절차요인",
+      "hazard_middle_category": "안전수칙미준수",
+      "secondary_hazards": [
+        {
+          "major": "정비요인",
+          "middle": "사전점검미흡",
+          "evidence": "회전부 완전 정지 확인 미흡"
+        }
+      ],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": "D",
+      "confidence": "medium",
+      "must_include_reason_keywords": ["끼임", "손가락", "회전부"],
+      "why_not_higher_keywords": ["절단", "중상", "명시되지 않음"],
+      "why_not_lower_keywords": ["손가락 끼임", "치료 가능성"],
+      "missing_information_keywords": ["회전부 속도", "손상 정도"],
+      "validation_warning_keywords": []
+    },
+    "notes": "손가락 끼임은 상황에 따라 C도 가능하나, 본 시나리오는 절단/중상 직접 단서가 없어 D로 둔다."
+  },
+  {
+    "id": "SV017",
+    "name": "행정반 의자 다리 걸림",
+    "severity_group": "E",
+    "situation_text": "행정반에서 의자 다리에 발이 걸려 살짝 휘청였지만 넘어지지는 않았습니다.",
+    "normalized": {
+      "accident_type": "낙상",
+      "work_type": "기타",
+      "hazard_major_category": "작업환경요인",
+      "hazard_middle_category": "기타",
+      "secondary_hazards": [],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": "E",
+      "confidence": "high",
+      "must_include_reason_keywords": ["경미", "휘청", "넘어지지"],
+      "why_not_higher_keywords": ["중상", "근무 제한", "명시되지 않음"],
+      "why_not_lower_keywords": [],
+      "missing_information_keywords": [],
+      "validation_warning_keywords": []
+    },
+    "notes": "실제 넘어짐이 없고 경미상 가능성 중심이므로 E."
+  },
+  {
+    "id": "SV018",
+    "name": "종이 모서리 손 베임",
+    "severity_group": "E",
+    "situation_text": "문서를 정리하다가 종이 모서리에 손가락이 살짝 베일 뻔했습니다.",
+    "normalized": {
+      "accident_type": "절단·베임",
+      "work_type": "기타",
+      "hazard_major_category": "작업환경요인",
+      "hazard_middle_category": "기타",
+      "secondary_hazards": [],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": "E",
+      "confidence": "high",
+      "must_include_reason_keywords": ["경미", "종이", "손가락"],
+      "why_not_higher_keywords": ["중상", "사망", "물적피해"],
+      "why_not_lower_keywords": [],
+      "missing_information_keywords": [],
+      "validation_warning_keywords": []
+    },
+    "notes": "경미상 가능성 중심이므로 E."
+  },
+  {
+    "id": "SV019",
+    "name": "정비 중 사고 날 뻔함",
+    "severity_group": "UNKNOWN",
+    "situation_text": "정비 중 사고 날 뻔했습니다.",
+    "normalized": {
+      "accident_type": "기타",
+      "work_type": "장비점검·정비",
+      "hazard_major_category": "기타",
+      "hazard_middle_category": "기타",
+      "secondary_hazards": [],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": null,
+      "confidence": "low",
+      "must_include_reason_keywords": [],
+      "why_not_higher_keywords": [],
+      "why_not_lower_keywords": [],
+      "missing_information_keywords": ["장비", "사고유형", "피해부위"],
+      "validation_warning_keywords": ["정보 부족으로 등급 확정 불가"]
+    },
+    "notes": "장비, 사고유형, 피해부위가 불명확해 등급 확정 불가."
+  },
+  {
+    "id": "SV020",
+    "name": "훈련 중 위험했습니다",
+    "severity_group": "UNKNOWN",
+    "situation_text": "훈련 중 위험했습니다. 다칠 뻔했습니다.",
+    "normalized": {
+      "accident_type": "기타",
+      "work_type": "기타",
+      "hazard_major_category": "기타",
+      "hazard_middle_category": "기타",
+      "secondary_hazards": [],
+      "environment_factors": [],
+      "human_factors": [],
+      "equipment": null
+    },
+    "expected": {
+      "grade": null,
+      "confidence": "low",
+      "must_include_reason_keywords": [],
+      "why_not_higher_keywords": [],
+      "why_not_lower_keywords": [],
+      "missing_information_keywords": ["훈련종류", "장비", "사고유형", "노출인원"],
+      "validation_warning_keywords": ["정보 부족으로 등급 확정 불가"]
+    },
+    "notes": "훈련 종류, 장비, 사고유형, 노출 인원이 모두 부족해 등급 확정 불가."
+  }
+]

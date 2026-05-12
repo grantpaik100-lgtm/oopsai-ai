@@ -7,6 +7,7 @@ interface ChipSelectorProps {
   onChange: (val: string[]) => void;
   error?: boolean;
   errorMsg?: string;
+  otherWarning?: string;
 }
 
 export default function ChipSelector({
@@ -18,6 +19,7 @@ export default function ChipSelector({
   onChange,
   error = false,
   errorMsg,
+  otherWarning,
 }: ChipSelectorProps) {
   const toggle = (option: string) => {
     if (multi) {
@@ -68,6 +70,7 @@ export default function ChipSelector({
         })}
       </div>
       {error && errorMsg && <p className="mt-2 text-sm text-red-600">{errorMsg}</p>}
+      {!error && otherWarning && <p className="mt-2 text-sm text-amber-700">{otherWarning}</p>}
     </div>
   );
 }

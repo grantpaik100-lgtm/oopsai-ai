@@ -53,13 +53,16 @@ ACCIDENT_TYPE_RULES: dict[str, dict[str, list[str] | str]] = {
             "얼굴에 맞",
             "팔에 맞",
             "머리에 맞",
+            "탄피",
+            "비산",
+            "선반 위",
         ],
         "negative_keywords": ["화상", "데임", "절단", "베임", "감전"],
         "examples": ["사격 중 총기 부품이 튕겨 눈에 맞을 뻔함"],
     },
     "교통": {
-        "definition": "차량, 트럭, 장갑차, 후진, 운전, 이동 중 발생하는 사고 위험",
-        "positive_keywords": ["차량", "트럭", "운전", "후진", "차륜", "교통", "이동 중 접촉", "사각지대", "치일"],
+        "definition": "차량, 트럭, 장갑차, 지게차, 후진, 운전, 이동 중 발생하는 사고 위험",
+        "positive_keywords": ["차량", "트럭", "운전", "후진", "차륜", "교통", "이동 중 접촉", "사각지대", "치일", "지게차"],
         "negative_keywords": ["보행 중 단순 미끄러짐"],
         "examples": ["차량 후진 중 보행자와 충돌할 뻔함"],
     },
@@ -80,7 +83,7 @@ ACCIDENT_TYPE_RULES: dict[str, dict[str, list[str] | str]] = {
             "배기부",
             "난방기",
         ],
-        "negative_keywords": ["단순 사격", "단순 부품 튐", "파편만 튐", "총기 부품 튐"],
+        "negative_keywords": ["단순 사격", "단순 부품 튐", "파편만 튐", "총기 부품 튐", "탄피"],
         "examples": ["취사 중 뜨거운 기름이 손에 튈 뻔함"],
     },
     "절단·베임": {
@@ -104,12 +107,12 @@ ACCIDENT_TYPE_RULES: dict[str, dict[str, list[str] | str]] = {
     "과부하·온열": {
         "definition": "무리한 중량물 취급, 반복 작업, 폭염 등으로 근골격계 부담 또는 온열질환이 생길 위험",
         "positive_keywords": ["무거운", "허리", "중량물", "과부하", "온열", "폭염", "탈진", "어지러움", "장시간", "무리하게"],
-        "negative_keywords": ["차량 충돌", "감전"],
+        "negative_keywords": ["차량 충돌", "감전", "밀폐공간", "밀폐된"],
         "examples": ["무거운 탄약 박스를 운반하다 허리를 다칠 뻔함"],
     },
     "질식·익사": {
         "definition": "밀폐공간, 환기 부족, 유해가스, 수중 작업 등으로 호흡 곤란 또는 익수 위험이 생기는 상황",
-        "positive_keywords": ["질식", "익사", "밀폐공간", "정화조", "환기 부족", "유해가스", "산소 부족", "물에 빠짐", "수중 작업", "안전줄"],
+        "positive_keywords": ["질식", "익사", "밀폐공간", "밀폐된", "정화조", "환기 부족", "환기가 되지 않", "유해가스", "산소 부족", "물에 빠짐", "수중 작업", "안전줄"],
         "negative_keywords": ["단순 미끄러짐", "단순 충격"],
         "examples": ["밀폐공간 작업 중 환기가 부족해 어지러움을 느낌"],
     },
@@ -122,14 +125,33 @@ ACCIDENT_TYPE_RULES: dict[str, dict[str, list[str] | str]] = {
 }
 
 HAZARD_MAJOR_RULES: dict[str, list[str]] = {
-    "보호구요인": ["보호안경", "안전모", "안전화", "장갑", "방탄모", "보호구", "보호장비", "미착용"],
+    "보호구요인": [
+        "보호안경",
+        "안전모",
+        "안전화",
+        "장갑",
+        "방탄모",
+        "보호구",
+        "보호장비",
+        "미착용",
+        "안전벨트 없이",
+        "안전대 없이",
+        "안전벨트 미착용",
+        "안전대 미착용",
+    ],
     "통제요인": [
         "통제 부족",
+        "주변 통제",
+        "주변 통제가 부족",
         "감독 부재",
         "안전거리 미확보",
         "주변 통제 미흡",
+        "통제나 감독이 없었다",
         "신호수 부재",
         "신호수 없이",
+        "신호수는 없",
+        "신호수가 없",
+        "유도자 없",
         "사각지대",
         "유도 없이",
     ],
@@ -171,6 +193,8 @@ HAZARD_MAJOR_RULES: dict[str, list[str]] = {
         "강한 충격",
         "젖은 손",
         "콘센트",
+        "회전부",
+        "멈추지 않",
     ],
     "숙련도요인": ["미숙", "숙련도 부족", "처음 하는 작업", "익숙하지 않음"],
     "작업환경요인": [
@@ -193,7 +217,7 @@ HAZARD_MAJOR_RULES: dict[str, list[str]] = {
         "날카로운 모서리",
         "철판 모서리",
     ],
-    "기상요인": ["비", "눈", "결빙", "강풍", "폭염", "혹한", "야간 시야 제한", "야간", "어두워"],
+    "기상요인": ["비", "눈", "결빙", "강풍", "폭염", "혹한", "야간 시야 제한", "야간", "어두워", "조명 부족", "조도 부족", "조명이 부족"],
     "환경요인": ["불", "화염", "연기", "고온", "뜨거운", "기름", "조리열", "엔진열"],
     "인적요인": ["무리하게", "혼자", "방심", "부주의"],
     "정비요인": ["정비", "전선", "피복 손상", "누전"],
@@ -283,17 +307,22 @@ def _keyword_matches(text: str, keyword: str) -> bool:
         return any(term in text for term in [" 비 ", "비가", "비나", "우천"])
     if normalized == "눈":
         return any(term in text for term in [" 눈 ", "눈이", "눈길", "강설"])
+    if normalized == "날":
+        return any(term in text for term in ["절단날", "칼날", "날카로운", "날에", "날이"])
     return normalized in text
 
 
 def _prioritize_accident_candidates(candidates: list[str], text: str) -> list[str]:
     prioritized = list(candidates)
-    if "교통" in prioritized and any(keyword in text for keyword in ["차량", "트럭", "후진", "운전", "차륜"]):
+    if "교통" in prioritized and any(keyword in text for keyword in ["차량", "트럭", "후진", "운전", "차륜", "지게차"]):
         prioritized.remove("교통")
         prioritized.insert(0, "교통")
     if "과부하·온열" in prioritized and any(keyword in text for keyword in ["무거운", "허리", "중량물", "무리하게"]):
         prioritized.remove("과부하·온열")
         prioritized.insert(0, "과부하·온열")
+    if "질식·익사" in prioritized and any(keyword in text for keyword in ["밀폐", "정화조", "맨홀"]):
+        prioritized.remove("질식·익사")
+        prioritized.insert(0, "질식·익사")
     return prioritized
 
 
