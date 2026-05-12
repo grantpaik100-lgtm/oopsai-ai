@@ -77,15 +77,42 @@ function firstOrOther(values: string[], fallback = "기타") {
   return values[0] ? taxonomyValue(values[0]) : fallback;
 }
 
-function toRecommended(options: readonly string[], normalizedValue?: string | null) {
-  if (!normalizedValue) return [];
-  return options.filter((option) => option === normalizedValue || CHIP_TAXONOMY_MAP[option] === normalizedValue);
+function emptyAiRecommendations() {
+  return {
+    accident_type: [],
+    work_type: [],
+    hazard: [],
+    environment_factors: [],
+    human_factors: [],
+    equipment: [],
+    hazard_raw_matched: "",
+    reason: "",
+  };
 }
 
-function toRecommendedMany(options: readonly string[], normalizedValues: string[]) {
-  return options.filter(
-    (option) => normalizedValues.includes(option) || normalizedValues.includes(CHIP_TAXONOMY_MAP[option]),
-  );
+function normalizeRecommendationValues(values: Array<string | null | undefined>) {
+  return values.filter((value): value is string => Boolean(value)).map(taxonomyValue);
+}
+
+function validRecommendations(groupName: string, options: readonly string[], values: string[]) {
+  const optionSet = new Set(options);
+  return values.filter((value) => {
+    const valid = optionSet.has(value);
+    if (!valid) {
+      console.warn(`[ai_recommendations] ${groupName} option not found: ${value}`);
+    }
+    return valid;
+  });
+}
+
+function recommendationsOrFallback(
+  groupName: string,
+  options: readonly string[],
+  recommended: string[] | undefined,
+  fallback: Array<string | null | undefined>,
+) {
+  const values = recommended && recommended.length > 0 ? recommended : normalizeRecommendationValues(fallback);
+  return validRecommendations(groupName, options, values);
 }
 
 function buildNormalizedFromForm(form: FormState, aiNormalized: NormalizedInput | null): NormalizedInput {
@@ -100,7 +127,7 @@ function buildNormalizedFromForm(form: FormState, aiNormalized: NormalizedInput 
     human_factors: form.humanFactors.map(taxonomyValue),
     equipment: form.equipment === "해당 없음" ? null : form.equipment,
     confidence: aiNormalized?.confidence ?? 0.8,
-    ai_recommendations: aiNormalized?.ai_recommendations ?? {},
+    ai_recommendations: aiNormalized?.ai_recommendations ?? emptyAiRecommendations(),
   };
 }
 
@@ -121,15 +148,42 @@ export default function InputFlow() {
 
   const aiRecommendations = useMemo(
     () => ({
-      accidentType: toRecommended(CHIPS.사고유형, aiNormalized?.accident_type),
-      workType: toRecommended(CHIPS.작업유형, aiNormalized?.work_type),
-      hazards: toRecommendedMany(CHIPS.위험요인, [
-        aiNormalized?.hazard_major_category ?? "",
-        aiNormalized?.hazard_middle_category ?? "",
-      ]),
-      environmentFactors: toRecommendedMany(CHIPS.환경요인, aiNormalized?.environment_factors ?? []),
-      humanFactors: toRecommendedMany(CHIPS.인적요인, aiNormalized?.human_factors ?? []),
-      equipment: toRecommended(CHIPS.사용장비, aiNormalized?.equipment),
+      accidentType: recommendationsOrFallback(
+        "사고유형",
+        CHIPS.사고유형,
+        aiNormalized?.ai_recommendations.accident_type,
+        [aiNormalized?.accident_type],
+      ),
+      workType: recommendationsOrFallback(
+        "작업유형",
+        CHIPS.작업유형,
+        aiNormalized?.ai_recommendations.work_type,
+        [aiNormalized?.work_type],
+      ),
+      hazards: recommendationsOrFallback(
+        "위험요인",
+        CHIPS.위험요인,
+        aiNormalized?.ai_recommendations.hazard,
+        [aiNormalized?.hazard_middle_category],
+      ),
+      environmentFactors: recommendationsOrFallback(
+        "환경요인",
+        CHIPS.환경요인,
+        aiNormalized?.ai_recommendations.environment_factors,
+        aiNormalized?.environment_factors ?? [],
+      ),
+      humanFactors: recommendationsOrFallback(
+        "인적요인",
+        CHIPS.인적요인,
+        aiNormalized?.ai_recommendations.human_factors,
+        aiNormalized?.human_factors ?? [],
+      ),
+      equipment: recommendationsOrFallback(
+        "사용장비",
+        CHIPS.사용장비,
+        aiNormalized?.ai_recommendations.equipment,
+        [aiNormalized?.equipment],
+      ),
     }),
     [aiNormalized],
   );

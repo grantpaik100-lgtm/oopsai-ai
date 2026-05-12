@@ -28,6 +28,76 @@ STANDARD_EQUIPMENT_VALUES = {
     "기타",
 }
 
+STANDARD_WORK_TYPES = {
+    "차량운전·이동",
+    "장비점검·정비",
+    "운반작업",
+    "훈련·사격",
+    "취사",
+    "공사·보수",
+    "체력단련",
+    "기타",
+}
+
+STANDARD_AI_RECOMMENDATIONS = {
+    "accident_type": {
+        "끼임",
+        "추락",
+        "낙상",
+        "충격",
+        "교통",
+        "화재·화상",
+        "절단·베임",
+        "폭발·파열",
+        "감전",
+        "과부하·온열",
+        "질식·익사",
+        "기타",
+    },
+    "work_type": STANDARD_WORK_TYPES,
+    "hazard": {
+        "보호장비미착용",
+        "사전점검미흡",
+        "작업통제부족",
+        "숙련도부족",
+        "미끄럼/지면불량",
+        "차량운행위험",
+        "고소작업위험",
+        "단독작업",
+        "야간/조도불량",
+        "장비노후화",
+        "확인미흡",
+        "안전수칙미준수",
+        "장비결함",
+        "부품이탈",
+        "낙하물",
+        "환기부족",
+        "기타",
+    },
+    "environment_factors": {
+        "야간/조도불량",
+        "우천/강설",
+        "고소작업환경",
+        "협소공간",
+        "미끄럼/지면불량",
+        "고온/저온",
+        "환기부족",
+        "해당 없음",
+        "기타",
+    },
+    "human_factors": {
+        "확인미흡",
+        "숙련도부족",
+        "부주의",
+        "안전수칙미준수",
+        "무리한작업",
+        "단독작업",
+        "해당 없음",
+        "기타",
+    },
+    "equipment": STANDARD_EQUIPMENT_VALUES,
+}
+
 
 @dataclass
 class EvaluationResult:
@@ -42,19 +112,26 @@ SCENARIOS: list[dict[str, Any]] = [
     {
         "id": "S001",
         "name": "사격 중 총기 부품 튐",
-        "situation_text": "개인화기 사격 중 총기 부품이 튕겨 눈에 맞을 뻔했으나 보호안경을 착용하지 않았다.",
+        "situation_text": "사격훈련 중 총기 부품이 튕겨 눈을 다칠 뻔했습니다. 보호안경을 착용하지 않았고 주변 통제가 부족했습니다.",
         "fields": {
             "work_type_raw": "훈련·사격 중",
-            "hazard_raw": ["보호장비를 안 했다"],
+            "hazard_raw": ["보호장비를 안 했다", "통제나 감독이 없었다"],
             "environment_factor_raw": ["해당 없음"],
             "human_factor_raw": ["확인을 안 했다"],
             "equipment_raw": "총기류",
         },
         "expected": {
             "accident_type": "충격",
+            "work_type": "훈련·사격",
             "hazard_major_category": "보호구요인",
             "hazard_middle_category": "보호장비미착용",
             "equipment": "총기류",
+            "ai_recommendations": {
+                "accident_type": ["충격"],
+                "work_type": ["훈련·사격"],
+                "hazard": ["보호장비미착용", "작업통제부족"],
+                "equipment": ["총기류"],
+            },
         },
     },
     {
@@ -525,11 +602,19 @@ def evaluate_scenario(scenario: dict[str, Any]) -> EvaluationResult:
 def compare_expected(expected: dict[str, Any], actual: NormalizedInput) -> list[str]:
     failures: list[str] = []
 
+    if actual.work_type not in STANDARD_WORK_TYPES:
+        failures.append(f"work_type non-standard actual={actual.work_type}")
+
     if actual.equipment is not None and actual.equipment not in STANDARD_EQUIPMENT_VALUES:
         failures.append(f"equipment non-standard actual={actual.equipment}")
 
+    failures.extend(compare_ai_recommendations(actual))
+
     if actual.accident_type != expected["accident_type"]:
         failures.append(f"accident_type expected={expected['accident_type']} actual={actual.accident_type}")
+
+    if "work_type" in expected and actual.work_type != expected["work_type"]:
+        failures.append(f"work_type expected={expected['work_type']} actual={actual.work_type}")
 
     if "hazard_major_category" in expected and not matches_expected(
         expected["hazard_major_category"], actual.hazard_major_category
@@ -550,6 +635,31 @@ def compare_expected(expected: dict[str, Any], actual: NormalizedInput) -> list[
     if "equipment" in expected and actual.equipment != expected["equipment"]:
         failures.append(f"equipment expected={expected['equipment']} actual={actual.equipment}")
 
+    expected_ai = expected.get("ai_recommendations")
+    if isinstance(expected_ai, dict):
+        actual_ai = actual.ai_recommendations.model_dump()
+        for key, expected_values in expected_ai.items():
+            actual_values = actual_ai.get(key, [])
+            for expected_value in expected_values:
+                if expected_value not in actual_values:
+                    failures.append(
+                        f"ai_recommendations.{key} missing expected={expected_value} actual={actual_values}"
+                    )
+
+    return failures
+
+
+def compare_ai_recommendations(actual: NormalizedInput) -> list[str]:
+    failures: list[str] = []
+    recommendations = actual.ai_recommendations.model_dump()
+    for key, allowed_values in STANDARD_AI_RECOMMENDATIONS.items():
+        values = recommendations.get(key, [])
+        if not isinstance(values, list):
+            failures.append(f"ai_recommendations.{key} is not a list")
+            continue
+        for value in values:
+            if value not in allowed_values:
+                failures.append(f"ai_recommendations.{key} non-standard actual={value}")
     return failures
 
 
@@ -569,6 +679,7 @@ def print_result(result: EvaluationResult) -> None:
     print(
         "  expected: "
         f"accident_type={expected.get('accident_type')}, "
+        f"work_type={expected.get('work_type')}, "
         f"hazard_major_category={expected.get('hazard_major_category')}, "
         f"hazard_middle_category={expected.get('hazard_middle_category')}, "
         f"equipment={expected.get('equipment')}"
@@ -576,12 +687,14 @@ def print_result(result: EvaluationResult) -> None:
     print(
         "  actual:   "
         f"accident_type={actual.accident_type}, "
+        f"work_type={actual.work_type}, "
         f"hazard_major_category={actual.hazard_major_category}, "
         f"hazard_middle_category={actual.hazard_middle_category}, "
         f"equipment={actual.equipment}"
     )
     print(f"  confidence: {actual.confidence:.2f}")
-    print(f"  reason: {actual.ai_recommendations.get('reason') or result.reason}")
+    print(f"  ai_recommendations: {actual.ai_recommendations.model_dump()}")
+    print(f"  reason: {actual.ai_recommendations.reason or result.reason}")
     if result.failures:
         print(f"  failures: {'; '.join(result.failures)}")
     print()
@@ -605,7 +718,7 @@ def print_fail_case_summary(results: list[EvaluationResult]) -> None:
         print(f"  expected equipment: {expected.get('equipment')}")
         print(f"  actual equipment:   {actual.equipment}")
         print(f"  confidence: {actual.confidence:.2f}")
-        print(f"  reason: {actual.ai_recommendations.get('reason') or '-'}")
+        print(f"  reason: {actual.ai_recommendations.reason or '-'}")
         print(f"  rule_reason: {result.reason}")
         print(f"  suggested_rule_gap: {suggest_rule_gap(expected, actual)}")
 

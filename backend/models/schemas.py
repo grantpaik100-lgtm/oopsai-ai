@@ -15,6 +15,17 @@ class NormalizeRequest(BaseModel):
     fields: NormalizeFields = Field(default_factory=NormalizeFields)
 
 
+class AiRecommendations(BaseModel):
+    accident_type: list[str] = Field(default_factory=list)
+    work_type: list[str] = Field(default_factory=list)
+    hazard: list[str] = Field(default_factory=list)
+    environment_factors: list[str] = Field(default_factory=list)
+    human_factors: list[str] = Field(default_factory=list)
+    equipment: list[str] = Field(default_factory=list)
+    hazard_raw_matched: str = ""
+    reason: str = ""
+
+
 class NormalizedInput(BaseModel):
     accident_type: str
     work_type: str
@@ -24,7 +35,7 @@ class NormalizedInput(BaseModel):
     human_factors: list[str]
     equipment: str | None = None
     confidence: float = Field(ge=0.0, le=1.0)
-    ai_recommendations: dict[str, str] = Field(default_factory=dict)
+    ai_recommendations: AiRecommendations = Field(default_factory=AiRecommendations)
 
 
 class AnalyzeMeta(BaseModel):

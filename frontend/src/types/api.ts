@@ -21,7 +21,18 @@ export interface NormalizedInput {
   human_factors: string[];
   equipment?: string | null;
   confidence: number;
-  ai_recommendations: Record<string, string>;
+  ai_recommendations: AiRecommendations;
+}
+
+export interface AiRecommendations {
+  accident_type: string[];
+  work_type: string[];
+  hazard: string[];
+  environment_factors: string[];
+  human_factors: string[];
+  equipment: string[];
+  hazard_raw_matched: string;
+  reason: string;
 }
 
 export interface AnalyzeMeta {

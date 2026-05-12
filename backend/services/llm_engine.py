@@ -60,6 +60,40 @@ HAZARD_MIDDLE_CATEGORIES = [
     "기타",
 ]
 
+WORK_TYPES = [
+    "차량운전·이동",
+    "장비점검·정비",
+    "운반작업",
+    "훈련·사격",
+    "취사",
+    "공사·보수",
+    "체력단련",
+    "기타",
+]
+
+ENVIRONMENT_FACTORS = [
+    "야간/조도불량",
+    "우천/강설",
+    "고소작업환경",
+    "협소공간",
+    "미끄럼/지면불량",
+    "고온/저온",
+    "환기부족",
+    "해당 없음",
+    "기타",
+]
+
+HUMAN_FACTORS = [
+    "확인미흡",
+    "숙련도부족",
+    "부주의",
+    "안전수칙미준수",
+    "무리한작업",
+    "단독작업",
+    "해당 없음",
+    "기타",
+]
+
 STANDARD_EQUIPMENT_VALUES = [
     "차량·트럭",
     "총기류",
@@ -70,11 +104,36 @@ STANDARD_EQUIPMENT_VALUES = [
     "기타",
 ]
 
+AI_RECOMMENDATIONS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "accident_type": {"type": "array", "items": {"type": "string", "enum": ACCIDENT_TYPES}},
+        "work_type": {"type": "array", "items": {"type": "string", "enum": WORK_TYPES}},
+        "hazard": {"type": "array", "items": {"type": "string", "enum": HAZARD_MIDDLE_CATEGORIES}},
+        "environment_factors": {"type": "array", "items": {"type": "string", "enum": ENVIRONMENT_FACTORS}},
+        "human_factors": {"type": "array", "items": {"type": "string", "enum": HUMAN_FACTORS}},
+        "equipment": {"type": "array", "items": {"type": "string", "enum": STANDARD_EQUIPMENT_VALUES}},
+        "hazard_raw_matched": {"type": "string"},
+        "reason": {"type": "string"},
+    },
+    "required": [
+        "accident_type",
+        "work_type",
+        "hazard",
+        "environment_factors",
+        "human_factors",
+        "equipment",
+        "hazard_raw_matched",
+        "reason",
+    ],
+    "additionalProperties": False,
+}
+
 NORMALIZED_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "accident_type": {"type": "string", "enum": ACCIDENT_TYPES},
-        "work_type": {"type": "string"},
+        "work_type": {"type": "string", "enum": WORK_TYPES},
         "hazard_major_category": {
             "type": "string",
             "enum": HAZARD_MAJOR_CATEGORIES,
@@ -85,24 +144,14 @@ NORMALIZED_INPUT_SCHEMA: dict[str, Any] = {
             "enum": HAZARD_MIDDLE_CATEGORIES,
             "description": "반드시 표준 중분류 후보 중 하나만 사용한다. 세부 보호구명이나 설명형 문구는 쓰지 않는다.",
         },
-        "environment_factors": {"type": "array", "items": {"type": "string"}},
-        "human_factors": {"type": "array", "items": {"type": "string"}},
+        "environment_factors": {"type": "array", "items": {"type": "string", "enum": ENVIRONMENT_FACTORS}},
+        "human_factors": {"type": "array", "items": {"type": "string", "enum": HUMAN_FACTORS}},
         "equipment": {
             "anyOf": [{"type": "string", "enum": STANDARD_EQUIPMENT_VALUES}, {"type": "null"}],
             "description": "반드시 표준 장비값 중 하나만 사용한다. 세부 장비명이나 설명형 값은 금지한다.",
         },
         "confidence": {"type": "number"},
-        "ai_recommendations": {
-            "type": "object",
-            "properties": {
-                "accident_type": {"type": "string"},
-                "work_type": {"type": "string"},
-                "hazard_raw_matched": {"type": "string"},
-                "reason": {"type": "string"},
-            },
-            "required": ["accident_type", "work_type", "hazard_raw_matched", "reason"],
-            "additionalProperties": False,
-        },
+        "ai_recommendations": AI_RECOMMENDATIONS_SCHEMA,
     },
     "required": [
         "accident_type",
@@ -125,6 +174,11 @@ SYSTEM_INSTRUCTION = """
 사고유형 후보:
 끼임, 추락, 낙상, 충격, 교통, 화재·화상, 절단·베임, 폭발·파열, 감전, 과부하·온열, 질식·익사, 기타
 
+작업유형 허용값:
+차량운전·이동, 장비점검·정비, 운반작업, 훈련·사격, 취사, 공사·보수, 체력단련, 기타
+work_type에는 설명형 문장을 쓰지 말고 위 허용값 중 하나만 반환하세요.
+예: "사격훈련 중 총기 부품 튕김"은 금지하고 "훈련·사격"으로 반환하세요.
+
 위험요인_대분류 후보:
 장비요인, 보호구요인, 환경요인, 인적요인, 절차요인, 통제요인, 숙련도요인, 정비요인, 기상요인, 작업환경요인, 기타
 
@@ -135,6 +189,17 @@ SYSTEM_INSTRUCTION = """
 
 equipment 허용값:
 차량·트럭, 총기류, 크레인·지게차, 조리기구, 전동공구·절단기, 해당 없음, 기타, null
+
+ai_recommendations는 다음 구조로 반환하세요.
+- accident_type: 사고유형 표준값 배열
+- work_type: 작업유형 표준값 배열
+- hazard: 위험요인 중분류 표준값 배열
+- environment_factors: 환경요인 표준값 배열
+- human_factors: 인적요인 표준값 배열
+- equipment: 사용장비 표준값 배열
+- hazard_raw_matched: 원문 또는 사용자 선택에서 매칭된 위험요인 근거
+- reason: 추천 근거 설명
+각 배열에는 프론트 칩에 있는 표준값만 넣고, 설명형 값은 reason에만 쓰세요.
 
 사용자가 선택한 칩은 참고하되, 상황 서술과 맞지 않으면 더 적절한 표준값을 선택하세요.
 rule_hints.accident_type_candidates를 우선 고려하세요.
@@ -198,21 +263,30 @@ def mock_normalize(request: NormalizeRequest) -> NormalizedInput:
     )
     hazard_major = _first_hint(rule_hints, "hazard_major_candidates") or _infer_mock_hazard_major(hazard_raw)
     hazard_middle = _infer_mock_hazard_middle(hazard_middle_source)
-    equipment = request.fields.equipment_raw or _first_hint(rule_hints, "equipment_candidates")
+    work_type = _standard_work_type(work_raw, request.situation_text)
+    equipment = _standard_equipment(request.fields.equipment_raw or _first_hint(rule_hints, "equipment_candidates"))
+    environment_factors = [_standard_environment_factor(value) for value in environment_raw]
+    human_factors = [_standard_human_factor(value) for value in human_raw]
+    hazard_recommendations = _mock_hazard_recommendations(hazard_middle_source, hazard_middle)
+    equipment_recommendations = [equipment] if equipment else []
 
     return NormalizedInput(
         accident_type=accident_type,
-        work_type=_to_korean_taxonomy(map_user_label(work_raw), default=work_raw),
+        work_type=work_type,
         hazard_major_category=hazard_major,
         hazard_middle_category=hazard_middle,
-        environment_factors=[_to_korean_taxonomy(map_user_label(value), default=value) for value in environment_raw],
-        human_factors=[_to_korean_taxonomy(map_user_label(value), default=value) for value in human_raw],
+        environment_factors=environment_factors,
+        human_factors=human_factors,
         equipment=equipment,
         confidence=0.91,
         ai_recommendations={
-            "accident_type": accident_type,
-            "work_type": _to_korean_taxonomy(map_user_label(work_raw), default=work_raw),
-            "hazard_raw_matched": hazard_raw[0] if hazard_raw else "",
+            "accident_type": [accident_type] if accident_type in ACCIDENT_TYPES else [],
+            "work_type": [work_type],
+            "hazard": hazard_recommendations,
+            "environment_factors": [value for value in environment_factors if value in ENVIRONMENT_FACTORS],
+            "human_factors": [value for value in human_factors if value in HUMAN_FACTORS],
+            "equipment": equipment_recommendations,
+            "hazard_raw_matched": ", ".join(hazard_raw) if hazard_raw else "",
             "reason": str(rule_hints["rule_reason"]),
         },
     )
@@ -231,6 +305,7 @@ def normalize_with_llm(request: NormalizeRequest) -> NormalizedInput:
         response = _create_openai_response(request)
         payload = _parse_json_payload(_extract_response_text(response))
         payload["confidence"] = _clamp_confidence(payload.get("confidence"))
+        payload = _sanitize_normalized_payload(payload, request)
         return NormalizedInput.model_validate(payload)
     except Exception:
         return mock_normalize(request)
@@ -360,6 +435,187 @@ def _infer_mock_hazard_middle(hazard_raw: list[str]) -> str:
     return mapped
 
 
+def _mock_hazard_recommendations(raw_values: list[str], primary: str) -> list[str]:
+    recommendations = [primary] if primary in HAZARD_MIDDLE_CATEGORIES else []
+    joined = " ".join(raw_values)
+    if any(keyword in joined for keyword in ["통제", "감독", "신호수", "안전거리"]):
+        recommendations.append("작업통제부족")
+    if any(keyword in joined for keyword in ["보호", "미착용", "보호안경", "보호구"]):
+        recommendations.append("보호장비미착용")
+    return _dedupe_standard(recommendations, HAZARD_MIDDLE_CATEGORIES)
+
+
+def _sanitize_normalized_payload(payload: dict[str, Any], request: NormalizeRequest) -> dict[str, Any]:
+    source_text = " ".join(
+        [
+            request.situation_text,
+            request.fields.work_type_raw or "",
+            request.fields.equipment_raw or "",
+            *request.fields.hazard_raw,
+            *request.fields.environment_factor_raw,
+            *request.fields.human_factor_raw,
+        ]
+    )
+    explicit_equipment = request.fields.equipment_raw or _first_hint(
+        build_rule_hints(request.situation_text, request.fields),
+        "equipment_candidates",
+    )
+
+    if any(keyword in source_text for keyword in ["사다리", "높은 곳", "차량 위", "고소작업"]) and any(
+        keyword in source_text for keyword in ["떨어", "추락", "아래로"]
+    ):
+        payload["accident_type"] = "추락"
+
+    payload["work_type"] = _standard_work_type(str(payload.get("work_type") or ""), "")
+    payload["equipment"] = _standard_equipment(payload.get("equipment"))
+    if payload["equipment"] == "기타" and _standard_equipment(explicit_equipment) is None:
+        payload["equipment"] = None
+    payload["environment_factors"] = [
+        _standard_environment_factor(str(value)) for value in payload.get("environment_factors", [])
+    ]
+    payload["human_factors"] = [_standard_human_factor(str(value)) for value in payload.get("human_factors", [])]
+
+    recommendations = payload.get("ai_recommendations")
+    if not isinstance(recommendations, dict):
+        recommendations = {}
+
+    payload["ai_recommendations"] = {
+        "accident_type": _standard_array(recommendations.get("accident_type"), ACCIDENT_TYPES),
+        "work_type": _dedupe_standard(
+            [_standard_work_type(str(value)) for value in _as_list(recommendations.get("work_type"))],
+            WORK_TYPES,
+        ),
+        "hazard": _standard_array(recommendations.get("hazard"), HAZARD_MIDDLE_CATEGORIES),
+        "environment_factors": _standard_array(recommendations.get("environment_factors"), ENVIRONMENT_FACTORS),
+        "human_factors": _standard_array(recommendations.get("human_factors"), HUMAN_FACTORS),
+        "equipment": _dedupe_standard(
+            [
+                equipment
+                for value in _as_list(recommendations.get("equipment"))
+                if (equipment := _standard_equipment(value)) is not None
+            ],
+            STANDARD_EQUIPMENT_VALUES,
+        ),
+        "hazard_raw_matched": str(recommendations.get("hazard_raw_matched") or ""),
+        "reason": str(recommendations.get("reason") or ""),
+    }
+
+    if not payload["ai_recommendations"]["accident_type"] and payload.get("accident_type") in ACCIDENT_TYPES:
+        payload["ai_recommendations"]["accident_type"] = [payload["accident_type"]]
+    if not payload["ai_recommendations"]["work_type"]:
+        payload["ai_recommendations"]["work_type"] = [payload["work_type"]]
+    if not payload["ai_recommendations"]["hazard"] and payload.get("hazard_middle_category") in HAZARD_MIDDLE_CATEGORIES:
+        payload["ai_recommendations"]["hazard"] = [payload["hazard_middle_category"]]
+    if any(keyword in source_text for keyword in ["통제", "감독", "신호수", "안전거리"]) and "작업통제부족" not in payload[
+        "ai_recommendations"
+    ]["hazard"]:
+        payload["ai_recommendations"]["hazard"].append("작업통제부족")
+    if not payload["ai_recommendations"]["equipment"] and payload.get("equipment") in STANDARD_EQUIPMENT_VALUES:
+        payload["ai_recommendations"]["equipment"] = [payload["equipment"]]
+    if payload.get("equipment") is None:
+        payload["ai_recommendations"]["equipment"] = []
+    return payload
+
+
+def _standard_array(value: Any, allowed: list[str]) -> list[str]:
+    return _dedupe_standard([_to_korean_taxonomy(str(item), default=str(item)) for item in _as_list(value)], allowed)
+
+
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else ([value] if isinstance(value, str) else [])
+
+
+def _dedupe_standard(values: list[str], allowed: list[str]) -> list[str]:
+    result: list[str] = []
+    allowed_set = set(allowed)
+    for value in values:
+        if value in allowed_set and value not in result:
+            result.append(value)
+    return result
+
+
+def _standard_work_type(value: str, situation_text: str = "") -> str:
+    joined = f"{value} {situation_text}"
+    if any(keyword in joined for keyword in ["차량", "운전", "이동", "후진", "트럭"]):
+        return "차량운전·이동"
+    if any(keyword in joined for keyword in ["점검", "정비", "장비"]):
+        return "장비점검·정비"
+    if any(keyword in joined for keyword in ["운반", "옮기", "적재", "하역"]):
+        return "운반작업"
+    if any(keyword in joined for keyword in ["훈련", "사격", "개인화기", "총기", "탄약"]):
+        return "훈련·사격"
+    if any(keyword in joined for keyword in ["취사", "조리", "밥", "프라이팬", "냄비"]):
+        return "취사"
+    if any(keyword in joined for keyword in ["공사", "보수", "시설", "용접"]):
+        return "공사·보수"
+    if any(keyword in joined for keyword in ["체력", "단련", "운동"]):
+        return "체력단련"
+    return "기타"
+
+
+def _standard_equipment(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    if text in STANDARD_EQUIPMENT_VALUES:
+        return None if text == "해당 없음" else text
+    if any(keyword in text for keyword in ["차량", "트럭", "후진", "차륜"]):
+        return "차량·트럭"
+    if any(keyword in text for keyword in ["총기", "개인화기", "소총", "탄피", "노리쇠"]):
+        return "총기류"
+    if any(keyword in text for keyword in ["크레인", "지게차", "인양"]):
+        return "크레인·지게차"
+    if any(keyword in text for keyword in ["조리", "프라이팬", "칼", "냄비", "기름"]):
+        return "조리기구"
+    if any(keyword in text for keyword in ["전동공구", "절단기", "절단날", "그라인더", "드릴", "톱"]):
+        return "전동공구·절단기"
+    return "기타" if text.strip() else None
+
+
+def _standard_environment_factor(value: str) -> str:
+    mapped = _to_korean_taxonomy(map_user_label(value), default=value)
+    if mapped in ENVIRONMENT_FACTORS:
+        return mapped
+    if any(keyword in value for keyword in ["야간", "밤", "어두"]):
+        return "야간/조도불량"
+    if any(keyword in value for keyword in ["비", "눈", "우천", "강설"]):
+        return "우천/강설"
+    if any(keyword in value for keyword in ["높은", "고소", "사다리", "차량 위"]):
+        return "고소작업환경"
+    if any(keyword in value for keyword in ["좁", "협소", "밀폐"]):
+        return "협소공간"
+    if any(keyword in value for keyword in ["미끄", "물기", "지면", "바닥"]):
+        return "미끄럼/지면불량"
+    if any(keyword in value for keyword in ["고온", "저온", "추", "덥", "폭염", "혹한"]):
+        return "고온/저온"
+    if "환기" in value:
+        return "환기부족"
+    if "해당 없음" in value:
+        return "해당 없음"
+    return "기타"
+
+
+def _standard_human_factor(value: str) -> str:
+    mapped = _to_korean_taxonomy(map_user_label(value), default=value)
+    if mapped in HUMAN_FACTORS:
+        return mapped
+    if "확인" in value:
+        return "확인미흡"
+    if any(keyword in value for keyword in ["숙련", "익숙"]):
+        return "숙련도부족"
+    if any(keyword in value for keyword in ["부주의", "방심"]):
+        return "부주의"
+    if "안전수칙" in value:
+        return "안전수칙미준수"
+    if "무리" in value:
+        return "무리한작업"
+    if any(keyword in value for keyword in ["단독", "혼자"]):
+        return "단독작업"
+    if "해당 없음" in value:
+        return "해당 없음"
+    return "기타"
+
+
 def _to_korean_taxonomy(value: str, default: str | None = None) -> str:
     mapping = {
         "strain": "과부하·온열",
@@ -376,8 +632,12 @@ def _to_korean_taxonomy(value: str, default: str | None = None) -> str:
         "working_alone": "단독작업",
         "work_control_missing": "작업통제부족",
         "equipment_defect": "장비노후화",
-        "general_work": "일반작업",
+        "general_work": "기타",
         "other": "기타",
         "unknown": "기타",
+        "야간": "야간/조도불량",
+        "우천": "우천/강설",
+        "고소작업": "고소작업환경",
+        "미끄럼": "미끄럼/지면불량",
     }
     return mapping.get(value, default or value)
