@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(corepack pnpm *)",
+      "Bash(uv run *)",
+      "PowerShell(uv run *)",
+      "PowerShell(corepack pnpm *)"
+    ]
+  }
+}
