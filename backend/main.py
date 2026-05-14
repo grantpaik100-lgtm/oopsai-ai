@@ -1,10 +1,8 @@
-import os
-
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import admin, analyze, cases
+from routers import action_image, admin, analyze, cases
 
 load_dotenv()
 
@@ -16,13 +14,9 @@ def create_app() -> FastAPI:
         description="Mock API skeleton for the near-miss prevention system.",
     )
 
-    cors_origins = os.getenv("FRONTEND_ORIGIN") or os.getenv("CORS_ORIGINS", "http://localhost:5173")
-    origins = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
-
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials="*" not in origins,
+        allow_origins=["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -32,6 +26,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(analyze.router)
+    app.include_router(action_image.router)
     app.include_router(cases.router)
     app.include_router(admin.router)
     app.include_router(admin.dev_router)

@@ -10,9 +10,17 @@ export interface NormalizeFields {
 export interface NormalizeRequest {
   situation_text: string;
   fields: NormalizeFields;
+  case_id?: string | null;
+  occurred_at?: string | null;
+  occurred_location?: string | null;
+  selected_accident_type?: string | null;
+  stt_text?: string | null;
+  images?: unknown[];
+  missing_info_answers?: unknown[];
 }
 
 export interface NormalizedInput {
+  case_id?: string | null;
   accident_type: string;
   work_type: string;
   hazard_major_category: string;
@@ -24,6 +32,9 @@ export interface NormalizedInput {
   ai_recommendations: AiRecommendations;
   secondary_hazards?: SecondaryHazard[];
   missing_info_questions?: MissingInfoQuestion[];
+  is_ready_for_recommendation?: boolean;
+  recommendation_context?: Record<string, unknown>;
+  image_edit_targets?: ImageEditTarget[];
 }
 
 export interface AiRecommendations {
@@ -56,9 +67,28 @@ export interface AnalyzeMeta {
 }
 
 export interface AnalyzeRequest {
+  case_id?: string | null;
   raw_input?: string | null;
   normalized: NormalizedInput;
   meta: AnalyzeMeta;
+  recommendation_context?: Record<string, unknown>;
+}
+
+export interface CaseStartRequest {
+  submitted_by?: string | null;
+  occurred_at?: string | null;
+  occurred_location?: string | null;
+  selected_accident_type?: string | null;
+  situation_text?: string | null;
+  stt_text?: string | null;
+  photo_metadata?: unknown[];
+}
+
+export interface CaseStartResponse {
+  case_id: string;
+  status: string;
+  step_status: Record<string, string>;
+  created_at: string;
 }
 
 export interface PreventionItem {
@@ -113,6 +143,57 @@ export interface AnalyzeResponse {
   action_guide?: ActionGuide | null;
   analysis_reason?: string | null;
   debug?: Record<string, string> | null;
+}
+
+export interface ImageEditTarget {
+  target_id?: string | null;
+  image_id?: string | null;
+  source_image_url?: string | null;
+  description?: string;
+  action_after_text?: string | null;
+  mask_hint?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SourceImage {
+  image_id?: string | null;
+  filename?: string | null;
+  mime_type?: string | null;
+  base64_data?: string | null;
+  preview_url?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SelectedAction {
+  prevention_id?: string | null;
+  content: string;
+  expected_action_result?: Record<string, string>;
+  selected_reason?: string | null;
+}
+
+export interface GenerateActionImageRequest {
+  case_id?: string | null;
+  source_image?: SourceImage | null;
+  image_edit_target: ImageEditTarget;
+  selected_action: SelectedAction;
+  recommendation_context?: Record<string, unknown>;
+}
+
+export interface GeneratedImage {
+  image_id?: string | null;
+  url?: string | null;
+  base64_data?: string | null;
+  mime_type: string;
+  prompt_summary?: string | null;
+}
+
+export interface GenerateActionImageResponse {
+  case_id?: string | null;
+  image_purpose: "action_after_example";
+  is_actual_evidence: false;
+  images: GeneratedImage[];
+  safety_notice: string;
+  limitations: string[];
 }
 
 export interface DbSummary {

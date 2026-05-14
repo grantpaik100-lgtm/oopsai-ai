@@ -1,7 +1,11 @@
 import type {
   AnalyzeRequest,
   AnalyzeResponse,
+  CaseStartRequest,
+  CaseStartResponse,
   DbSummary,
+  GenerateActionImageRequest,
+  GenerateActionImageResponse,
   NormalizeRequest,
   NormalizedInput,
   SimilarCase,
@@ -33,6 +37,13 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export function startCase(request: CaseStartRequest): Promise<CaseStartResponse> {
+  return requestJson<CaseStartResponse>("/api/cases/start", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
 export function normalizeIncident(request: NormalizeRequest): Promise<NormalizedInput> {
   return requestJson<NormalizedInput>("/api/normalize", {
     method: "POST",
@@ -42,6 +53,15 @@ export function normalizeIncident(request: NormalizeRequest): Promise<Normalized
 
 export function analyzeIncident(request: AnalyzeRequest): Promise<AnalyzeResponse> {
   return requestJson<AnalyzeResponse>("/api/analyze", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export function generateActionImage(
+  request: GenerateActionImageRequest,
+): Promise<GenerateActionImageResponse> {
+  return requestJson<GenerateActionImageResponse>("/api/generate-action-image", {
     method: "POST",
     body: JSON.stringify(request),
   });

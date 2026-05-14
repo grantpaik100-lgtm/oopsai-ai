@@ -24,12 +24,25 @@ router = APIRouter(prefix="/api", tags=["analyze"])
 
 @router.post("/normalize", response_model=NormalizedInput)
 def normalize(request: NormalizeRequest) -> NormalizedInput:
-    return normalize_with_llm(request)
+    try:
+        normalized = normalize_with_llm(request)
+    except Exception as exc:
+        _save_backend1_failure(request, exc)
+        raise
+
+    response = _prepare_backend1_response(request, normalized)
+    _save_backend1_snapshot(request, response)
+    return response
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     response = build_analyze_response(request)
+
+    if request.case_id:
+        response.meta["case_id"] = request.case_id
+        _update_pending_case_backend2(request, response)
+        return response
 
     try:
         case_id = _insert_pending_case(request, response)
@@ -113,6 +126,244 @@ def build_analyze_response(request: AnalyzeRequest) -> AnalyzeResponse:
     )
 
     return response
+
+
+def _prepare_backend1_response(
+    request: NormalizeRequest,
+    normalized: NormalizedInput,
+) -> NormalizedInput:
+    recommendation_context = _build_recommendation_context(normalized)
+    is_ready_for_recommendation = _is_ready_for_recommendation(request, normalized)
+
+    return normalized.model_copy(
+        update={
+            "case_id": normalized.case_id or request.case_id,
+            "is_ready_for_recommendation": is_ready_for_recommendation,
+            "recommendation_context": recommendation_context,
+            "image_edit_targets": [],
+        }
+    )
+
+
+def _build_recommendation_context(normalized: NormalizedInput) -> dict:
+    hazard_major = normalized.hazard_major_category or ""
+    hazard_middle = normalized.hazard_middle_category or ""
+    return {
+        "accident_type": normalized.accident_type or "",
+        "work_type": normalized.work_type or "",
+        "primary_hazard": hazard_middle or hazard_major,
+        "hazard_major_category": hazard_major,
+        "hazard_middle_category": hazard_middle,
+        "secondary_hazards": [
+            item.model_dump(mode="json") for item in normalized.secondary_hazards
+        ],
+        "environment_factors": normalized.environment_factors or [],
+        "human_factors": normalized.human_factors or [],
+        "equipment": normalized.equipment,
+        "confidence": normalized.confidence,
+    }
+
+
+def _is_ready_for_recommendation(
+    request: NormalizeRequest,
+    normalized: NormalizedInput,
+) -> bool:
+    has_accident_type = bool(normalized.accident_type.strip())
+    has_hazard = bool(
+        normalized.hazard_major_category.strip()
+        or normalized.hazard_middle_category.strip()
+    )
+    has_work_context = bool(
+        normalized.equipment
+        or normalized.work_type.strip()
+        or request.situation_text.strip()
+    )
+    return has_accident_type and has_hazard and has_work_context
+
+
+def _backend_step_status(backend1_status: str) -> str:
+    return json.dumps(
+        {
+            "backend1": backend1_status,
+            "backend2": "not_started",
+            "backend3": "not_started",
+        },
+        ensure_ascii=False,
+    )
+
+
+def _json_dumps_model(value: object) -> str:
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(mode="json")
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _load_step_status(value: str | None) -> dict[str, str]:
+    default_status = {
+        "backend1": "completed",
+        "backend2": "not_started",
+        "backend3": "not_started",
+    }
+    if not value:
+        return default_status
+
+    try:
+        loaded = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return default_status
+
+    if not isinstance(loaded, dict):
+        return default_status
+
+    merged = default_status.copy()
+    for key in ("backend1", "backend2", "backend3"):
+        existing = loaded.get(key)
+        if isinstance(existing, str) and existing:
+            merged[key] = existing
+    return merged
+
+
+def _backend2_step_status(existing_step_status: str | None) -> str:
+    step_status = _load_step_status(existing_step_status)
+    step_status["backend2"] = "completed"
+    step_status.setdefault("backend3", "not_started")
+    return json.dumps(step_status, ensure_ascii=False)
+
+
+def _update_pending_case_backend2(
+    request: AnalyzeRequest,
+    response: AnalyzeResponse,
+) -> None:
+    if not request.case_id:
+        return
+
+    try:
+        with get_connection() as connection:
+            row = connection.execute(
+                "SELECT step_status FROM pending_cases WHERE case_id = ?",
+                (request.case_id,),
+            ).fetchone()
+            if row is None:
+                print(f"Backend 2 snapshot skipped: case_id not found: {request.case_id}")
+                return
+
+            connection.execute(
+                """
+                UPDATE pending_cases
+                SET raw_input = COALESCE(?, raw_input),
+                    normalized = ?,
+                    output_json = ?,
+                    backend2_input = ?,
+                    backend2_output = ?,
+                    step_status = ?,
+                    status = ?
+                WHERE case_id = ?
+                """,
+                (
+                    request.raw_input,
+                    _json_dumps_model(request.normalized),
+                    _json_dumps_model(response),
+                    _json_dumps_model(request),
+                    _json_dumps_model(response),
+                    _backend2_step_status(row["step_status"]),
+                    "pending",
+                    request.case_id,
+                ),
+            )
+            connection.commit()
+    except Exception as exc:
+        _record_backend2_snapshot_error(request.case_id, exc)
+
+
+def _record_backend2_snapshot_error(case_id: str, exc: Exception) -> None:
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE pending_cases
+                SET error_log = ?
+                WHERE case_id = ?
+                """,
+                (f"Backend 2 snapshot failed: {exc}", case_id),
+            )
+            connection.commit()
+    except Exception as log_exc:
+        print(f"Backend 2 snapshot failed: {exc}; error_log update failed: {log_exc}")
+
+
+def _save_backend1_snapshot(
+    request: NormalizeRequest,
+    response: NormalizedInput,
+) -> None:
+    if not request.case_id:
+        return
+
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE pending_cases
+                SET backend1_input = ?,
+                    backend1_output = ?,
+                    missing_info_questions = ?,
+                    step_status = ?
+                WHERE case_id = ?
+                """,
+                (
+                    _json_dumps_model(request),
+                    _json_dumps_model(response),
+                    _json_dumps_model(response.missing_info_questions),
+                    _backend_step_status("completed"),
+                    request.case_id,
+                ),
+            )
+            connection.commit()
+            if cursor.rowcount == 0:
+                print(f"Backend 1 snapshot skipped: case_id not found: {request.case_id}")
+    except Exception as exc:
+        _record_backend1_snapshot_error(request.case_id, exc)
+
+
+def _save_backend1_failure(request: NormalizeRequest, exc: Exception) -> None:
+    if not request.case_id:
+        return
+
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE pending_cases
+                SET backend1_input = ?,
+                    step_status = ?,
+                    error_log = ?
+                WHERE case_id = ?
+                """,
+                (
+                    _json_dumps_model(request),
+                    _backend_step_status("failed"),
+                    str(exc),
+                    request.case_id,
+                ),
+            )
+            connection.commit()
+    except Exception as log_exc:
+        print(f"Backend 1 failure snapshot failed: {log_exc}")
+
+
+def _record_backend1_snapshot_error(case_id: str, exc: Exception) -> None:
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE pending_cases
+                SET error_log = ?
+                WHERE case_id = ?
+                """,
+                (f"Backend 1 snapshot failed: {exc}", case_id),
+            )
+            connection.commit()
+    except Exception as log_exc:
+        print(f"Backend 1 snapshot failed: {exc}; error_log update failed: {log_exc}")
 
 
 def apply_llm_prevention_ranking(
@@ -239,16 +490,22 @@ def _insert_pending_case(request: AnalyzeRequest, response: AnalyzeResponse) -> 
                 raw_input,
                 normalized,
                 output_json,
+                backend2_input,
+                backend2_output,
+                step_status,
                 submitted_by,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 case_id,
                 raw_input,
-                json.dumps(request.normalized.model_dump(), ensure_ascii=False, default=str),
-                json.dumps(response.model_dump(), ensure_ascii=False, default=str),
+                _json_dumps_model(request.normalized),
+                _json_dumps_model(response),
+                _json_dumps_model(request),
+                _json_dumps_model(response),
+                _backend2_step_status(None),
                 request.meta.submitted_by,
                 "pending",
             ),

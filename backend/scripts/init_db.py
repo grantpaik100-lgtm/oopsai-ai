@@ -25,6 +25,19 @@ CREATE TABLE IF NOT EXISTS pending_cases (
   raw_input TEXT,
   normalized TEXT,
   output_json TEXT,
+  original_input_json TEXT,
+  backend1_input TEXT,
+  backend1_output TEXT,
+  backend2_input TEXT,
+  backend2_output TEXT,
+  backend3_input TEXT,
+  backend3_output TEXT,
+  missing_info_questions TEXT,
+  missing_info_answers TEXT,
+  photo_metadata TEXT,
+  step_status TEXT,
+  error_log TEXT,
+  final_report TEXT,
   조치결과 TEXT,
   조치일시 DATE,
   status TEXT DEFAULT 'pending',
@@ -34,6 +47,22 @@ CREATE TABLE IF NOT EXISTS pending_cases (
   reviewed_at DATETIME
 );
 """
+
+PENDING_CASE_TEXT_COLUMNS = (
+    "original_input_json",
+    "backend1_input",
+    "backend1_output",
+    "backend2_input",
+    "backend2_output",
+    "backend3_input",
+    "backend3_output",
+    "missing_info_questions",
+    "missing_info_answers",
+    "photo_metadata",
+    "step_status",
+    "error_log",
+    "final_report",
+)
 
 
 def get_project_root() -> Path:
@@ -97,6 +126,16 @@ def table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
     return cursor.fetchone() is not None
 
 
+def ensure_pending_case_columns(connection: sqlite3.Connection) -> None:
+    existing_columns = {
+        row[1]
+        for row in connection.execute('PRAGMA table_info("pending_cases")').fetchall()
+    }
+    for column in PENDING_CASE_TEXT_COLUMNS:
+        if column not in existing_columns:
+            connection.execute(f'ALTER TABLE pending_cases ADD COLUMN "{column}" TEXT')
+
+
 def main() -> None:
     excel_path = get_excel_path()
     db_path = get_database_path()
@@ -127,6 +166,7 @@ def main() -> None:
                 cleaned_df.to_sql(table_name, connection, if_exists="replace", index=False)
 
             connection.execute(PENDING_CASES_SQL)
+            ensure_pending_case_columns(connection)
             connection.commit()
 
             print("Row counts:")

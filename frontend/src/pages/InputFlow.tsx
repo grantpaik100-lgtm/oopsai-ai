@@ -1,15 +1,14 @@
-import { useMemo, useState } from "react";
-import { analyzeIncident, normalizeIncident } from "../api/client";
-import AiBubble from "../components/AiBubble";
-import AiDebugPanel from "../components/AiDebugPanel";
-import AiFactorStatusPanel from "../components/AiFactorStatusPanel";
-import ChipSelector from "../components/ChipSelector";
-import ConfirmScreen from "../components/ConfirmScreen";
-import ProgressBar from "../components/ProgressBar";
-import STTButton from "../components/STTButton";
-import { CHIPS, CHIP_TAXONOMY_MAP, HAZARD_MAJOR_MAP } from "../constants/chips";
-import type { AnalyzeRequest, AnalyzeResponse, MissingInfoQuestion, NormalizedInput, NormalizeFields } from "../types/api";
-import ResultDetail from "./ResultDetail";
+import { useMemo, useRef, useState } from "react";
+import type { ChangeEvent, ReactNode } from "react";
+import { analyzeIncident, generateActionImage, normalizeIncident, startCase } from "../api/client";
+import type {
+  AnalyzeResponse,
+  GenerateActionImageResponse,
+  MissingInfoQuestion,
+  NormalizedInput,
+  PreventionItem,
+  SourceImage,
+} from "../types/api";
 
 export interface FormState {
   occurred_at: string;
@@ -32,754 +31,692 @@ export interface OtherInputs {
   equipment: string;
 }
 
-const initialForm: FormState = {
-  occurred_at: "",
-  occurred_location: "",
-  situationText: "",
-  accidentType: "",
-  workType: "",
-  hazards: [],
-  environmentFactors: [],
-  humanFactors: [],
-  equipment: "",
+type Step = "photo" | "questions" | "type" | "prevention" | "action" | "completionPhoto" | "preview" | "done";
+type PickMode = "camera" | "gallery";
+type ActionImageStatus = "idle" | "loading" | "success" | "error";
+
+type BrowserSpeechRecognitionEvent = Event & {
+  results: ArrayLike<{
+    isFinal: boolean;
+    0: {
+      transcript: string;
+    };
+  }>;
 };
 
-const initialOtherInputs: OtherInputs = {
-  accidentType: "",
-  workType: "",
-  hazards: "",
-  environmentFactors: "",
-  humanFactors: "",
-  equipment: "",
+type BrowserSpeechRecognitionErrorEvent = Event & {
+  error?: string;
 };
 
-const stepTitles = [
-  "발생 정보",
-  "상황 입력",
-  "AI 정보부족질문",
-  "사고유형 확인",
-  "작업유형 확인",
-  "위험요인 확인",
-  "환경요인 확인",
-  "인적요인 확인",
-  "사용장비 확인",
-  "입력 내용 확인",
-  "분석 결과",
+interface BrowserSpeechRecognition extends EventTarget {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => BrowserSpeechRecognition;
+    webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
+  }
+}
+
+const steps: Array<[Step, string]> = [
+  ["photo", "위험"],
+  ["questions", "질문"],
+  ["type", "유형"],
+  ["prevention", "예방"],
+  ["action", "조치"],
+  ["completionPhoto", "사진"],
+  ["preview", "확인"],
+  ["done", "완료"],
 ];
 
-const requiredStepMessages: Record<number, { key: keyof FormState; message: string }> = {
-  3: { key: "accidentType", message: "사고유형을 선택해주세요" },
-  4: { key: "workType", message: "작업유형을 선택해주세요" },
-  5: { key: "hazards", message: "위험요인을 하나 이상 선택해주세요" },
-  6: { key: "environmentFactors", message: "환경요인을 선택해주세요 (해당 없음 선택 가능)" },
-  7: { key: "humanFactors", message: "인적요인을 선택해주세요 (해당 없음 선택 가능)" },
-  8: { key: "equipment", message: "사용장비를 선택해주세요 (해당 없음 선택 가능)" },
-};
+const accidentTypes = ["화재", "폭발", "떨어짐(추락)", "끼임(협착)", "부딪힘(충격)", "붕괴", "감전", "중독(질식)", "온열질환", "기타"];
+const demoText = "전기 배선함 인근 전선 피복이 벗겨져 있어 감전 위험이 있었습니다. 전원을 차단하지 않은 상태에서 점검하려 했고, 검전도 하지 않았습니다.";
 
-const requiredConfirmKeys: Array<keyof FormState> = [
-  "occurred_at",
-  "occurred_location",
-  "situationText",
-  "accidentType",
-  "workType",
-  "hazards",
-  "environmentFactors",
-  "humanFactors",
-  "equipment",
-];
-
-function isEmpty(value: string | string[]) {
-  return !value || (Array.isArray(value) && value.length === 0);
+function nowInputValue() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
-function taxonomyValue(label: string) {
-  return CHIP_TAXONOMY_MAP[label] ?? label;
+function stripDataUrl(dataUrl: string) {
+  return dataUrl.includes(",") ? dataUrl.split(",", 2)[1] : dataUrl;
 }
 
-function firstOrOther(values: string[], fallback = "기타") {
-  return values[0] ? taxonomyValue(values[0]) : fallback;
+function fileToSourceImage(file: File): Promise<SourceImage> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("사진을 읽지 못했습니다."));
+    reader.onload = () => {
+      const previewUrl = String(reader.result ?? "");
+      resolve({
+        image_id: `local-${Date.now()}`,
+        filename: file.name,
+        mime_type: file.type || "image/jpeg",
+        base64_data: stripDataUrl(previewUrl),
+        preview_url: previewUrl,
+        metadata: {
+          size: file.size,
+          source: "frontend_file_input",
+        },
+      });
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
-function emptyAiRecommendations() {
+function closestAccidentType(value?: string) {
+  const text = value ?? "";
+  if (text.includes("화재")) return "화재";
+  if (text.includes("폭발") || text.includes("파열")) return "폭발";
+  if (text.includes("추락") || text.includes("떨어")) return "떨어짐(추락)";
+  if (text.includes("끼임") || text.includes("협착")) return "끼임(협착)";
+  if (text.includes("충격") || text.includes("부딪")) return "부딪힘(충격)";
+  if (text.includes("붕괴")) return "붕괴";
+  if (text.includes("감전")) return "감전";
+  if (text.includes("질식") || text.includes("중독")) return "중독(질식)";
+  if (text.includes("온열")) return "온열질환";
+  return text ? "기타" : "";
+}
+
+function toCompletedForm(text: string): string {
+  return text
+    .replace(/한다\./g, "하였다.")
+    .replace(/합니다\./g, "하였습니다.")
+    .replace(/한다$/g, "하였다.")
+    .replace(/합니다$/g, "하였습니다.")
+    .replace(/설치한다/g, "설치하였다")
+    .replace(/조치한다/g, "조치하였다")
+    .replace(/차단한다/g, "차단하였다")
+    .replace(/통제한다/g, "통제하였다")
+    .replace(/보고한다/g, "보고하였다")
+    .replace(/점검한다/g, "점검하였다")
+    .replace(/진행한다/g, "진행하였다")
+    .replace(/확인한다/g, "확인하였다")
+    .replace(/실시한다/g, "실시하였다");
+}
+
+function fallbackNormalized(text: string, caseId: string | null): NormalizedInput {
   return {
-    accident_type: [],
-    work_type: [],
-    hazard: [],
+    case_id: caseId,
+    accident_type: text.includes("감전") ? "감전" : "기타",
+    work_type: "점검",
+    hazard_major_category: "전기 위험",
+    hazard_middle_category: text || "현장 위험요인",
     environment_factors: [],
-    human_factors: [],
-    equipment: [],
-    hazard_raw_matched: "",
-    reason: "",
+    human_factors: ["전원 차단 전 점검", "검전 미실시"],
+    equipment: "전기 배선함",
+    confidence: 0.55,
+    ai_recommendations: {
+      accident_type: [text.includes("감전") ? "감전" : "기타"],
+      work_type: ["점검"],
+      hazard: ["전기 위험"],
+      environment_factors: [],
+      human_factors: ["검전 미실시"],
+      equipment: ["전기 배선함"],
+      hazard_raw_matched: "",
+      reason: "AI 분석이 지연되어 시연용 기본값을 사용했습니다.",
+    },
+    secondary_hazards: [],
+    missing_info_questions: [],
+    is_ready_for_recommendation: true,
+    recommendation_context: {
+      accident_type: text.includes("감전") ? "감전" : "기타",
+      work_type: "점검",
+      primary_hazard: "전기 위험",
+      hazard_major_category: "전기 위험",
+      hazard_middle_category: text,
+      secondary_hazards: [],
+      environment_factors: [],
+      human_factors: ["전원 차단 전 점검", "검전 미실시"],
+      equipment: "전기 배선함",
+      confidence: 0.55,
+    },
+    image_edit_targets: [],
   };
 }
 
-function normalizeRecommendationValues(values: Array<string | null | undefined>) {
-  return values.filter((value): value is string => Boolean(value)).map(taxonomyValue);
-}
-
-function validRecommendations(groupName: string, options: readonly string[], values: string[]) {
-  const optionSet = new Set(options);
-  return values.filter((value) => {
-    const valid = optionSet.has(value);
-    if (!valid) {
-      console.warn(`[ai_recommendations] ${groupName} option not found: ${value}`);
-    }
-    return valid;
-  });
-}
-
-function recommendationsOrFallback(
-  groupName: string,
-  options: readonly string[],
-  recommended: string[] | undefined,
-  fallback: Array<string | null | undefined>,
-) {
-  const values = recommended && recommended.length > 0 ? recommended : normalizeRecommendationValues(fallback);
-  return validRecommendations(groupName, options, values);
-}
-
-function withOtherEvidence(values: string[], otherValue: string) {
-  const trimmed = otherValue.trim();
-  if (!values.includes("기타") || !trimmed) return values;
-  return [...values, `기타: ${trimmed}`];
-}
-
-function singleWithOtherEvidence(value: string, otherValue: string) {
-  const trimmed = otherValue.trim();
-  if (value !== "기타" || !trimmed) return value || null;
-  return `기타: ${trimmed}`;
-}
-
-function otherWarning(selected: string | string[], otherValue: string) {
-  const hasOther = Array.isArray(selected) ? selected.includes("기타") : selected === "기타";
-  if (!hasOther || otherValue.trim()) return undefined;
-  return "기타를 선택한 경우 내용을 적으면 AI 분석 정확도가 올라갑니다.";
-}
-
-function missingQuestionKey(item: MissingInfoQuestion, index: number) {
-  return `${item.field}-${index}`;
-}
-
-function buildNormalizeFields(form: FormState, otherInputs: OtherInputs): NormalizeFields {
+function fallbackAnalyze(normalized: NormalizedInput, caseId: string | null): AnalyzeResponse {
+  const item: PreventionItem = {
+    prevention_id: "DEMO_PRV_001",
+    major_category: "전기 위험",
+    middle_category: "감전",
+    content: "전기 담당자에게 즉시 보고하고, 전원 차단 및 검전 후 손상된 전선 피복을 절연 조치한다. 조치 전까지 해당 구역 접근을 통제한다.",
+    expected_action_result: { effect_summary: "감전 위험이 줄고 무단 접근을 방지한다." },
+    priority: 1,
+    recommended_reason: "감전 위험은 전원 차단, 검전, 절연조치, 접근통제가 우선입니다.",
+  };
   return {
-    accident_type_raw: singleWithOtherEvidence(form.accidentType, otherInputs.accidentType),
-    work_type_raw: singleWithOtherEvidence(form.workType, otherInputs.workType),
-    hazard_raw: withOtherEvidence(form.hazards, otherInputs.hazards),
-    environment_factor_raw: withOtherEvidence(form.environmentFactors, otherInputs.environmentFactors),
-    human_factor_raw: withOtherEvidence(form.humanFactors, otherInputs.humanFactors),
-    equipment_raw: singleWithOtherEvidence(form.equipment, otherInputs.equipment),
+    meta: { case_id: caseId ?? "DEMO_LOCAL", timestamp: new Date().toISOString(), status: "pending_review" },
+    input_summary: { accident_type: normalized.accident_type, work_type: normalized.work_type, hazard: normalized.hazard_middle_category },
+    prevention_list: [item],
+    similar_cases: [],
+    risk_score: { level: "medium", score: 68, reasons: ["전원 차단 전 점검과 검전 미실시가 확인되었습니다."] },
+    predicted_severity: null,
+    action_guide: {
+      summary: "전기 담당자 보고, 전원 차단, 검전, 절연조치, 접근통제를 순서대로 진행하였다.",
+      immediate_actions: ["손상된 전선 피복을 절연 조치하였다.", "접근 통제 표지를 설치하였다."],
+      follow_up_actions: ["조치 완료 후 실제 현장 사진으로 확인하였다."],
+      expected_result_example: "노출된 전선이 절연되고 접근통제 표지가 설치됩니다.",
+    },
+    analysis_reason: "AI 분석이 지연되어 시연용 기본 제안을 표시했습니다.",
   };
 }
 
-function buildQuestionPromptMap(questions: MissingInfoQuestion[]) {
-  return Object.fromEntries(questions.map((item, index) => [missingQuestionKey(item, index), item.question]));
-}
-
-function actionableMissingInfoQuestions(questions: MissingInfoQuestion[], form: FormState) {
-  return questions.filter((item) => {
-    if (item.field === "occurred_at" && form.occurred_at) return false;
-    if (item.field === "occurred_location" && form.occurred_location.trim()) return false;
-    return true;
-  });
-}
-
-function buildSituationWithMissingAnswers(
-  situationText: string,
-  questions: MissingInfoQuestion[],
-  answers: Record<string, string>,
-) {
-  const answerLines = questions
-    .map((item, index) => {
-      const answer = answers[missingQuestionKey(item, index)]?.trim();
-      return answer ? `- ${item.question}: ${answer}` : null;
-    })
-    .filter((line): line is string => Boolean(line));
-
-  if (answerLines.length === 0) return situationText;
-  return `${situationText.trim()}\n\n[추가 답변]\n${answerLines.join("\n")}`;
-}
-
-function buildNormalizedFromForm(form: FormState, aiNormalized: NormalizedInput | null): NormalizedInput {
-  const hazard = form.hazards[0] ?? "기타";
-
+function fallbackImage(caseId: string | null): GenerateActionImageResponse {
   return {
-    accident_type: taxonomyValue(form.accidentType),
-    work_type: form.workType,
-    hazard_major_category: HAZARD_MAJOR_MAP[hazard] ?? aiNormalized?.hazard_major_category ?? "기타",
-    hazard_middle_category: firstOrOther(form.hazards),
-    environment_factors: form.environmentFactors.map(taxonomyValue),
-    human_factors: form.humanFactors.map(taxonomyValue),
-    equipment: form.equipment === "해당 없음" ? null : form.equipment,
-    confidence: aiNormalized?.confidence ?? 0.8,
-    ai_recommendations: aiNormalized?.ai_recommendations ?? emptyAiRecommendations(),
-    secondary_hazards: aiNormalized?.secondary_hazards ?? [],
-    missing_info_questions: aiNormalized?.missing_info_questions ?? [],
+    case_id: caseId,
+    image_purpose: "action_after_example",
+    is_actual_evidence: false,
+    images: [],
+    safety_notice: "이 이미지는 조치 후 예시이며 실제 현장 증빙이 아닙니다.",
+    limitations: ["현재 시연버전에서는 실제 이미지 생성을 수행하지 않았거나 생성에 실패했습니다.", "실제 조치 완료 여부는 현장 확인 또는 실제 사진으로 검증해야 합니다."],
   };
-}
-
-function hasFilledValue(value: string | null | undefined) {
-  return Boolean(value && value !== "기타" && value !== "해당 없음");
-}
-
-function hasFilledArray(values: string[] | undefined) {
-  return Boolean(values?.some((value) => value && value !== "기타" && value !== "해당 없음"));
-}
-
-function buildReanalysisMessage(
-  before: NormalizedInput | null,
-  after: NormalizedInput,
-  visibleQuestionCount: number,
-) {
-  const improved: string[] = [];
-  if (!hasFilledValue(before?.accident_type) && hasFilledValue(after.accident_type)) improved.push("사고유형");
-  if (!hasFilledValue(before?.work_type) && hasFilledValue(after.work_type)) improved.push("작업유형");
-  if (!hasFilledValue(before?.hazard_middle_category) && hasFilledValue(after.hazard_middle_category)) {
-    improved.push("위험요인");
-  }
-  if (!hasFilledValue(before?.equipment) && hasFilledValue(after.equipment)) improved.push("사용장비");
-  if ((before?.secondary_hazards?.length ?? 0) < (after.secondary_hazards?.length ?? 0)) {
-    improved.push("부가 위험요인");
-  }
-  if (!hasFilledArray(before?.environment_factors) && hasFilledArray(after.environment_factors)) {
-    improved.push("환경요인");
-  }
-  if (!hasFilledArray(before?.human_factors) && hasFilledArray(after.human_factors)) improved.push("인적요인");
-
-  if (visibleQuestionCount === 0) {
-    return improved.length > 0
-      ? `답변이 반영되었습니다. ${improved.join(", ")} 정보가 보강되어 요인 확인 단계로 이동합니다.`
-      : "추가 질문이 없어 요인 확인 단계로 이동합니다.";
-  }
-  if (improved.length > 0) {
-    return `답변이 반영되었습니다. ${improved.join(", ")} 정보가 보강되었습니다.`;
-  }
-  return "답변을 반영했지만 아직 확인이 필요한 정보가 있습니다.";
 }
 
 export default function InputFlow() {
-  const [step, setStep] = useState(0);
-  const [form, setForm] = useState<FormState>(initialForm);
-  const [otherInputs, setOtherInputs] = useState<OtherInputs>(initialOtherInputs);
-  const [missingQuestionAnswers, setMissingQuestionAnswers] = useState<Record<string, string>>({});
-  const [missingQuestionPrompts, setMissingQuestionPrompts] = useState<Record<string, string>>({});
-  const [aiNormalized, setAiNormalized] = useState<NormalizedInput | null>(null);
-  const [result, setResult] = useState<AnalyzeResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [reanalyzeLoading, setReanalyzeLoading] = useState(false);
-  const [submitLoading, setSubmitLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [stepError, setStepError] = useState<string | null>(null);
-  const [reanalyzeMessage, setReanalyzeMessage] = useState<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const completionCameraRef = useRef<HTMLInputElement>(null);
+  const completionGalleryRef = useRef<HTMLInputElement>(null);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
-  const missingInfoQuestions = useMemo(
-    () => actionableMissingInfoQuestions(aiNormalized?.missing_info_questions ?? [], form),
-    [aiNormalized?.missing_info_questions, form],
-  );
+  const [step, setStep] = useState<Step>("photo");
+  const [caseId, setCaseId] = useState<string | null>(null);
+  const [sourceImage, setSourceImage] = useState<SourceImage | null>(null);
+  const [completionSourceImage, setCompletionSourceImage] = useState<SourceImage | null>(null);
+  const [occurredAt, setOccurredAt] = useState(nowInputValue());
+  const [occurredLocation, setOccurredLocation] = useState("본부동 전기실");
+  const [situationText, setSituationText] = useState("");
+  const [normalized, setNormalized] = useState<NormalizedInput | null>(null);
+  const [questions, setQuestions] = useState<MissingInfoQuestion[]>([]);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [missingInfoAnswers, setMissingInfoAnswers] = useState<string[]>([]);
+  const [questionDraft, setQuestionDraft] = useState("");
+  const [selectedAccidentType, setSelectedAccidentType] = useState("");
+  const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResponse | null>(null);
+  const [preventionText, setPreventionText] = useState("");
+  const [preventionCardVisible, setPreventionCardVisible] = useState(true);
+  const [actionText, setActionText] = useState("");
+  const [actionCardVisible, setActionCardVisible] = useState(true);
+  const [imageResult, setImageResult] = useState<GenerateActionImageResponse | null>(null);
+  const [actionImageStatus, setActionImageStatus] = useState<ActionImageStatus>("idle");
+  const [loading, setLoading] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [fileMode, setFileMode] = useState<PickMode>("gallery");
+  const [completionFileMode, setCompletionFileMode] = useState<PickMode>("gallery");
+  const [isListening, setIsListening] = useState(false);
 
-  const missingFields = useMemo(
-    () => requiredConfirmKeys.filter((key) => isEmpty(form[key])),
-    [form],
-  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const createdAt = useMemo(() => new Date().toLocaleString("ko-KR"), [step === "preview"]);
 
-  const aiRecommendations = useMemo(
-    () => ({
-      accidentType: recommendationsOrFallback(
-        "사고유형",
-        CHIPS.사고유형,
-        aiNormalized?.ai_recommendations?.accident_type,
-        [aiNormalized?.accident_type],
-      ),
-      workType: recommendationsOrFallback(
-        "작업유형",
-        CHIPS.작업유형,
-        aiNormalized?.ai_recommendations?.work_type,
-        [aiNormalized?.work_type],
-      ),
-      hazards: recommendationsOrFallback(
-        "위험요인",
-        CHIPS.위험요인,
-        aiNormalized?.ai_recommendations?.hazard,
-        [aiNormalized?.hazard_middle_category],
-      ),
-      environmentFactors: recommendationsOrFallback(
-        "환경요인",
-        CHIPS.환경요인,
-        aiNormalized?.ai_recommendations?.environment_factors,
-        aiNormalized?.environment_factors ?? [],
-      ),
-      humanFactors: recommendationsOrFallback(
-        "인적요인",
-        CHIPS.인적요인,
-        aiNormalized?.ai_recommendations?.human_factors,
-        aiNormalized?.human_factors ?? [],
-      ),
-      equipment: recommendationsOrFallback(
-        "사용장비",
-        CHIPS.사용장비,
-        aiNormalized?.ai_recommendations?.equipment,
-        [aiNormalized?.equipment],
-      ),
-    }),
-    [aiNormalized],
-  );
+  const aiType = closestAccidentType(normalized?.accident_type);
+  const preventionSuggestion = analyzeResult?.prevention_list.map((item) => item.content).join("\n") ?? "";
+  const preventionReason = analyzeResult?.prevention_list[0]?.recommended_reason || analyzeResult?.analysis_reason || "AI 추천 이유가 제공되지 않았습니다.";
 
-  const updateForm = <K extends keyof FormState>(key: K, value: FormState[K]) => {
-    setForm((current) => ({ ...current, [key]: value }));
-    setStepError(null);
+  const rawActionSuggestion = analyzeResult?.action_guide
+    ? [analyzeResult.action_guide.summary, ...analyzeResult.action_guide.immediate_actions, ...analyzeResult.action_guide.follow_up_actions].join("\n")
+    : analyzeResult?.prevention_list[0]?.content ?? preventionSuggestion;
+  const actionSuggestion = toCompletedForm(rawActionSuggestion);
+
+  const actionImageSrc = imageResult?.images?.[0]?.base64_data
+    ? `data:${imageResult.images[0].mime_type};base64,${imageResult.images[0].base64_data}`
+    : (imageResult?.images?.[0]?.url ?? null);
+
+  const appendSpeechText = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setSituationText((current) => {
+      const existing = current.trim();
+      return existing ? `${existing}\n${trimmed}` : trimmed;
+    });
   };
 
-  const updateOtherInput = (key: keyof OtherInputs, value: string) => {
-    setOtherInputs((current) => ({ ...current, [key]: value }));
-  };
-
-  const runNormalize = async () => {
-    if (!form.situationText.trim()) {
-      setStepError("상황 내용을 입력해주세요");
+  const startSpeechInput = () => {
+    const SpeechRecognitionConstructor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (!SpeechRecognitionConstructor) {
+      setNotice("이 브라우저에서는 음성 입력을 지원하지 않습니다. 텍스트로 입력해주세요.");
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setStepError(null);
     try {
-      const normalized = await normalizeIncident({
-        situation_text: form.situationText,
-        fields: buildNormalizeFields(form, otherInputs),
-      });
-      const nextQuestions = actionableMissingInfoQuestions(normalized.missing_info_questions ?? [], form);
-      setAiNormalized(normalized);
-      setMissingQuestionAnswers({});
-      setMissingQuestionPrompts(buildQuestionPromptMap(nextQuestions));
-      setReanalyzeMessage(null);
-      setStep(nextQuestions.length > 0 ? 2 : 3);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "AI 분석에 실패했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
+      speechRecognitionRef.current?.stop();
+      const recognition = new SpeechRecognitionConstructor();
+      speechRecognitionRef.current = recognition;
+      recognition.lang = "ko-KR";
+      recognition.interimResults = true;
+      recognition.continuous = false;
 
-  const rerunNormalizeWithMissingAnswers = async () => {
-    if (!form.situationText.trim()) {
-      setStepError("상황 내용을 입력해주세요");
-      return;
-    }
-
-    setReanalyzeLoading(true);
-    setError(null);
-    setStepError(null);
-    try {
-      const normalized = await normalizeIncident({
-        situation_text: buildSituationWithMissingAnswers(form.situationText, missingInfoQuestions, missingQuestionAnswers),
-        fields: buildNormalizeFields(form, otherInputs),
-      });
-      const nextQuestions = actionableMissingInfoQuestions(normalized.missing_info_questions ?? [], form);
-      const message = buildReanalysisMessage(aiNormalized, normalized, nextQuestions.length);
-      setAiNormalized(normalized);
-      setMissingQuestionPrompts((current) => ({
-        ...current,
-        ...buildQuestionPromptMap(nextQuestions),
-      }));
-      setReanalyzeMessage(message);
-      setStep(nextQuestions.length > 0 ? 2 : 3);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "재분석에 실패했습니다.");
-    } finally {
-      setReanalyzeLoading(false);
-    }
-  };
-
-  const goNext = () => {
-    if (step === 0) {
-      if (!form.occurred_at) {
-        setStepError("발생일시를 입력해주세요");
-        return;
-      }
-      if (!form.occurred_location.trim()) {
-        setStepError("발생장소를 입력해주세요");
-        return;
-      }
-      setStep(1);
-      return;
-    }
-
-    if (step === 1) {
-      if (!form.situationText.trim()) {
-        setStepError("상황 내용을 입력해주세요");
-        return;
-      }
-      setStep(aiNormalized ? ((missingInfoQuestions.length > 0 ? 2 : 3)) : 1);
-      return;
-    }
-
-    // TODO: 1-B 이후 질문별 필수 여부가 내려오면 여기서 필수 답변 검증을 적용한다.
-    if (step === 2) {
-      setStep(3);
-      return;
-    }
-
-    const required = requiredStepMessages[step];
-    if (required && isEmpty(form[required.key])) {
-      setStepError(required.message);
-      return;
-    }
-    setStep((current) => Math.min(current + 1, 9));
-  };
-
-  const submitAnalyze = async () => {
-    if (missingFields.length > 0) return;
-
-    setSubmitLoading(true);
-    setError(null);
-    try {
-      const request: AnalyzeRequest = {
-        raw_input: form.situationText,
-        normalized: buildNormalizedFromForm(form, aiNormalized),
-        meta: {
-          submitted_by: "user_001",
-          occurred_at: form.occurred_at,
-          occurred_location: form.occurred_location,
-        },
+      let finalTranscript = "";
+      recognition.onresult = (event) => {
+        let interimTranscript = "";
+        for (let index = 0; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          const transcript = result[0]?.transcript ?? "";
+          if (result.isFinal) finalTranscript += transcript;
+          else interimTranscript += transcript;
+        }
+        if (interimTranscript.trim()) {
+          setNotice(`듣는 중: ${interimTranscript.trim()}`);
+        }
       };
-      const analyzeResult = await analyzeIncident(request);
-      setResult(analyzeResult);
-      setStep(10);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "결과 생성에 실패했습니다.");
-    } finally {
-      setSubmitLoading(false);
+      recognition.onerror = () => {
+        setIsListening(false);
+        setNotice("음성 인식에 실패했습니다. 텍스트로 입력해주세요.");
+      };
+      recognition.onend = () => {
+        setIsListening(false);
+        appendSpeechText(finalTranscript);
+        speechRecognitionRef.current = null;
+      };
+      setNotice(null);
+      setIsListening(true);
+      recognition.start();
+    } catch {
+      setIsListening(false);
+      setNotice("음성 인식에 실패했습니다. 텍스트로 입력해주세요.");
     }
   };
 
-  const reset = () => {
-    setForm(initialForm);
-    setOtherInputs(initialOtherInputs);
-    setMissingQuestionAnswers({});
-    setMissingQuestionPrompts({});
-    setAiNormalized(null);
-    setResult(null);
-    setError(null);
-    setStepError(null);
-    setReanalyzeMessage(null);
-    setStep(0);
+  const pickSourceFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      setSourceImage(await fileToSourceImage(file));
+      setNotice(null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "사진을 읽지 못했습니다.");
+    }
+  };
+
+  const pickCompletionFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      setCompletionSourceImage(await fileToSourceImage(file));
+      setNotice(null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "사진을 읽지 못했습니다.");
+    }
+  };
+
+  const startPhotoPick = (mode: PickMode) => {
+    setFileMode(mode);
+    if (mode === "camera") cameraInputRef.current?.click();
+    else galleryInputRef.current?.click();
+  };
+
+  const startCompletionPhotoPick = (mode: PickMode) => {
+    setCompletionFileMode(mode);
+    if (mode === "camera") completionCameraRef.current?.click();
+    else completionGalleryRef.current?.click();
+  };
+
+  const fillDemo = () => {
+    setOccurredLocation("본부동 전기실");
+    setSituationText(demoText);
+    setSelectedAccidentType("감전");
+  };
+
+  const runStartAndNormalize = async () => {
+    if (!situationText.trim()) {
+      setNotice("식별된 위험 요인을 입력해주세요.");
+      return;
+    }
+    setLoading("AI가 사진과 설명을 정리하고 있어요.");
+    setNotice(null);
+    let nextCaseId = caseId;
+    try {
+      if (!nextCaseId) {
+        const started = await startCase({
+          submitted_by: "demo_user",
+          occurred_at: occurredAt,
+          occurred_location: occurredLocation,
+          selected_accident_type: selectedAccidentType || null,
+          situation_text: situationText,
+          photo_metadata: sourceImage ? [{ ...sourceImage, base64_data: undefined, preview_url: undefined }] : [],
+        });
+        nextCaseId = started.case_id;
+        setCaseId(nextCaseId);
+      }
+      const result = await normalizeIncident({
+        case_id: nextCaseId,
+        situation_text: situationText,
+        occurred_at: occurredAt,
+        occurred_location: occurredLocation,
+        selected_accident_type: selectedAccidentType || null,
+        images: sourceImage ? [{ ...sourceImage, preview_url: undefined }] : [],
+        missing_info_answers: [],
+        fields: {
+          accident_type_raw: selectedAccidentType || null,
+          work_type_raw: null,
+          hazard_raw: [],
+          environment_factor_raw: [],
+          human_factor_raw: [],
+          equipment_raw: null,
+        },
+      });
+      setNormalized(result);
+      setQuestions(result.missing_info_questions ?? []);
+      setMissingInfoAnswers(new Array(result.missing_info_questions?.length ?? 0).fill(""));
+      setSelectedAccidentType(closestAccidentType(result.accident_type) || selectedAccidentType);
+      setStep((result.missing_info_questions?.length ?? 0) > 0 ? "questions" : "type");
+    } catch (error) {
+      const fallback = fallbackNormalized(situationText, nextCaseId);
+      setNormalized(fallback);
+      setQuestions([]);
+      setSelectedAccidentType(closestAccidentType(fallback.accident_type));
+      setNotice(error instanceof Error ? `AI 분석이 지연되고 있어 수동 입력으로 계속 진행할 수 있습니다. (${error.message})` : "AI 분석이 지연되고 있어 수동 입력으로 계속 진행할 수 있습니다.");
+      setStep("type");
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const saveQuestionAnswer = async (answer: string) => {
+    const next = [...missingInfoAnswers];
+    next[questionIndex] = answer;
+    setMissingInfoAnswers(next);
+    setQuestionDraft("");
+    if (questionIndex + 1 < questions.length) {
+      setQuestionIndex((current) => current + 1);
+      return;
+    }
+    await rerunNormalize(next);
+    setStep("type");
+  };
+
+  const rerunNormalize = async (answers: string[]) => {
+    if (!caseId || !normalized) return;
+    try {
+      setLoading("답변을 반영해 다시 정리하고 있어요.");
+      const result = await normalizeIncident({
+        case_id: caseId,
+        situation_text: `${situationText}\n\n[추가 답변]\n${questions.map((q, i) => `${q.question}: ${answers[i] || "건너뜀"}`).join("\n")}`,
+        occurred_at: occurredAt,
+        occurred_location: occurredLocation,
+        images: sourceImage ? [{ ...sourceImage, preview_url: undefined }] : [],
+        missing_info_answers: answers,
+        fields: {
+          accident_type_raw: selectedAccidentType || null,
+          work_type_raw: null,
+          hazard_raw: [],
+          environment_factor_raw: [],
+          human_factor_raw: [],
+          equipment_raw: null,
+        },
+      });
+      setNormalized(result);
+      setSelectedAccidentType(closestAccidentType(result.accident_type) || selectedAccidentType);
+    } catch {
+      setNotice("재분석에 실패했지만 기존 AI 결과로 계속 진행할 수 있습니다.");
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const runAnalyze = async () => {
+    const base = normalized ?? fallbackNormalized(situationText, caseId);
+    const nextNormalized = { ...base, case_id: caseId, accident_type: selectedAccidentType || base.accident_type };
+    setNormalized(nextNormalized);
+    setLoading("AI 분석 중...");
+    setNotice(null);
+
+    let resultLocal: AnalyzeResponse = fallbackAnalyze(nextNormalized, caseId);
+
+    try {
+      resultLocal = await analyzeIncident({
+        case_id: caseId,
+        raw_input: situationText,
+        normalized: nextNormalized,
+        recommendation_context: nextNormalized.recommendation_context ?? {},
+        meta: {
+          submitted_by: "demo_user",
+          occurred_at: occurredAt,
+          occurred_location: occurredLocation,
+        },
+      });
+      setAnalyzeResult(resultLocal);
+    } catch (error) {
+      setAnalyzeResult(resultLocal);
+      setNotice(error instanceof Error ? `AI 분석이 지연되고 있어 수동 입력으로 계속 진행할 수 있습니다. (${error.message})` : "AI 분석이 지연되고 있어 수동 입력으로 계속 진행할 수 있습니다.");
+    } finally {
+      setLoading(null);
+    }
+
+    // 백그라운드 이미지 생성 (analyze 완료 직후 즉시 실행, 결과를 기다리지 않음)
+    setActionImageStatus("loading");
+    const actionContent = resultLocal.prevention_list[0]?.content ?? preventionText ?? "확정한 안전 조치를 적용한다.";
+    generateActionImage({
+      case_id: caseId,
+      source_image: sourceImage ? { ...sourceImage, preview_url: undefined } : null,
+      selected_action: { content: actionContent },
+      recommendation_context: nextNormalized.recommendation_context ?? {},
+      image_edit_target: nextNormalized.image_edit_targets?.[0] ?? {
+        description: "사용자가 입력한 위험 요인을 예방 조치한 후의 상태",
+        action_after_text: actionContent,
+        metadata: { source: "frontend_prevention_image_fallback" },
+      },
+    }).then((result) => {
+      setImageResult(result);
+      setActionImageStatus("success");
+    }).catch(() => {
+      setActionImageStatus("error");
+    });
+
+    setStep("prevention");
+  };
+
+  const applyText = (kind: "prevention" | "action", mode: "accept" | "append" | "replace" | "reject") => {
+    const suggestion = kind === "prevention" ? preventionSuggestion : actionSuggestion;
+    const setter = kind === "prevention" ? setPreventionText : setActionText;
+    if (mode === "reject") {
+      if (kind === "prevention") setPreventionCardVisible(false);
+      else setActionCardVisible(false);
+      return;
+    }
+    if (mode === "accept" || mode === "replace") setter(suggestion);
+    if (mode === "append") setter((current) => [current, suggestion].filter(Boolean).join("\n"));
   };
 
   return (
-    <main className="min-h-screen px-4 py-6 sm:py-10">
-      <div className="mx-auto max-w-2xl">
-        <header className="mb-5">
-          <p className="text-sm font-semibold text-field-700">군 안전관리 아차사고 신고</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-normal text-field-900">AI 예방대책 입력</h1>
-        </header>
+    <main className="min-h-screen bg-[#F3F4F8] px-3 py-4 text-[#1D1D24]">
+      <input ref={cameraInputRef} className="hidden" type="file" accept="image/*" capture="environment" onChange={pickSourceFile} />
+      <input ref={galleryInputRef} className="hidden" type="file" accept="image/*" onChange={pickSourceFile} />
+      <input ref={completionCameraRef} className="hidden" type="file" accept="image/*" capture="environment" onChange={pickCompletionFile} />
+      <input ref={completionGalleryRef} className="hidden" type="file" accept="image/*" onChange={pickCompletionFile} />
 
-        <section className="rounded-lg border border-stone-200 bg-field-50 p-4 shadow-sm sm:p-6">
-          {step < 10 && (
-            <div className="mb-5">
-              <ProgressBar current={Math.min(step + 1, 10)} total={10} />
-              <h2 className="mt-4 text-xl font-bold text-field-900">{stepTitles[step]}</h2>
-            </div>
-          )}
+      <div className="mx-auto max-w-[360px] rounded-[28px] border border-[#D9DAE3] bg-white shadow-sm">
+        <TopBar title="사고 등록" onBack={() => setStep(previousStep(step))} />
+        <StepDots step={step} />
+        <section className="px-4 pb-4">
+          {notice && <Notice>{notice}</Notice>}
+          {loading && <div className="mb-3 rounded-xl border border-[#AFA9EC] bg-[#EEEDFE] px-3 py-2 text-[13px] font-semibold text-[#3C3489]">{loading}</div>}
 
-          {error && (
-            <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          {reanalyzeMessage && (
-            <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              {reanalyzeMessage}
-            </div>
-          )}
-
-          {aiNormalized && step >= 3 && step <= 8 && (
-            <div className="mb-4 space-y-4">
-              <AiBubble>
-                AI 정규화 결과를 기준으로 추천 칩을 표시했습니다. 실제 상황과 다르면 직접 수정할 수 있습니다.
-              </AiBubble>
-              <AiFactorStatusPanel normalized={aiNormalized} missingInfoQuestions={missingInfoQuestions} />
-            </div>
-          )}
-
-          {step === 0 && (
-            <div className="space-y-4">
-              <label className="block">
-                <span className="text-sm font-semibold text-stone-700">발생일시</span>
-                <input
-                  type="datetime-local"
-                  value={form.occurred_at}
-                  onChange={(event) => updateForm("occurred_at", event.target.value)}
-                  className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-field-700"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-semibold text-stone-700">발생장소</span>
-                <input
-                  value={form.occurred_location}
-                  onChange={(event) => updateForm("occurred_location", event.target.value)}
-                  placeholder="예: 사격장"
-                  className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-field-700"
-                />
-              </label>
-              {stepError && <p className="text-sm text-red-600">{stepError}</p>}
-            </div>
-          )}
-
-          {step === 1 && (
-            <div className="space-y-4">
-              <p className="text-sm leading-6 text-stone-600">
-                무슨 작업 중이었는지, 어떤 위험이 있었는지, 장비·보호구·장소 상황을 설명해주세요.
-              </p>
-              <textarea
-                value={form.situationText}
-                onChange={(event) => updateForm("situationText", event.target.value)}
-                rows={7}
-                placeholder="예: 사격훈련 중 총기 부품이 튕겨 눈을 다칠 뻔했습니다. 보호안경을 착용하지 않았고 주변 통제가 부족했습니다."
-                className="w-full resize-none rounded-lg border border-stone-300 bg-white p-3 text-sm leading-6 outline-none focus:border-field-700"
-              />
-              {stepError && <p className="text-sm text-red-600">{stepError}</p>}
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <STTButton />
-                <button
-                  type="button"
-                  onClick={runNormalize}
-                  disabled={loading}
-                  className="rounded-md bg-field-700 px-4 py-2 text-sm font-bold text-white disabled:bg-stone-300"
-                >
-                  {loading ? "분석 중" : "AI 분석"}
-                </button>
+          {step === "photo" && (
+            <Screen title="사진을 첨부하고 상황을 설명해주세요">
+              <button className="mb-3 text-[12px] font-bold text-[#534AB7]" onClick={fillDemo}>데모 입력 채우기</button>
+              <div className="mb-3 grid grid-cols-3 gap-2">
+                <MiniButton onClick={() => startPhotoPick("camera")}>카메라</MiniButton>
+                <MiniButton onClick={() => startPhotoPick("gallery")}>갤러리</MiniButton>
+                <MiniButton onClick={() => setSourceImage(null)}>건너뛰기</MiniButton>
               </div>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-base font-bold text-field-900">AI가 추가로 확인하고 싶은 정보</h3>
-                <p className="mt-1 text-sm leading-6 text-stone-600">
-                  입력만으로 판단하기 어려운 항목이 있으면 아래 질문에 답해주세요. 답변을 반영하면 사고유형과 위험요인 추천이 더 정확해집니다.
-                </p>
-              </div>
-              <AiFactorStatusPanel normalized={aiNormalized} missingInfoQuestions={missingInfoQuestions} />
-              {missingInfoQuestions.length > 0 ? (
-                missingInfoQuestions.map((item, index) => {
-                  const key = missingQuestionKey(item, index);
-                  return (
-                    <div key={key} className="rounded-lg border border-stone-200 bg-white p-3">
-                      <p className="text-sm font-semibold text-stone-900">{item.question}</p>
-                      <p className="mt-1 text-xs leading-5 text-stone-500">{item.reason}</p>
-                      <textarea
-                        value={missingQuestionAnswers[key] ?? ""}
-                        onChange={(event) => {
-                          setMissingQuestionAnswers((current) => ({ ...current, [key]: event.target.value }));
-                          setMissingQuestionPrompts((current) => ({ ...current, [key]: item.question }));
-                        }}
-                        onFocus={() =>
-                          setMissingQuestionPrompts((current) => ({ ...current, [key]: item.question }))
-                        }
-                        rows={3}
-                        placeholder="답변 입력"
-                        className="mt-3 w-full resize-none rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-field-700"
-                      />
+              <div className="mb-3 rounded-2xl border border-dashed border-[#C8C8D3] bg-[#F9F9FC] p-3">
+                {sourceImage?.preview_url ? (
+                  <div>
+                    <img src={sourceImage.preview_url} alt="선택한 현장 사진" className="h-40 w-full rounded-xl object-cover" />
+                    <div className="mt-2 flex gap-2">
+                      <MiniButton onClick={() => startPhotoPick(fileMode)}>재촬영</MiniButton>
+                      <MiniButton onClick={() => startPhotoPick("gallery")}>추가</MiniButton>
                     </div>
-                  );
-                })
-              ) : (
-                <div className="rounded-lg border border-stone-200 bg-white px-3 py-4 text-sm text-stone-600">
-                  추가 질문 없음
-                </div>
-              )}
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={rerunNormalizeWithMissingAnswers}
-                  disabled={reanalyzeLoading}
-                  className="flex-1 rounded-md bg-field-700 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-stone-300"
-                >
-                  {reanalyzeLoading ? "재분석 중" : "답변 반영 후 다시 분석"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep(3)}
-                  disabled={reanalyzeLoading}
-                  className="flex-1 rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-bold text-stone-700 disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
-                >
-                  그대로 진행
-                </button>
+                    <p className="mt-2 text-[11px] text-[#777783]">원본 사진은 조치 가이드 생성 참고용으로만 사용됩니다.</p>
+                  </div>
+                ) : (
+                  <p className="py-8 text-center text-[13px] text-[#777783]">사진은 선택 사항입니다.</p>
+                )}
               </div>
-            </div>
+              <Input label="식별 일시" value={occurredAt} onChange={setOccurredAt} type="datetime-local" />
+              <Input label="식별 장소" value={occurredLocation} onChange={setOccurredLocation} />
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <MiniButton onClick={startSpeechInput}>{isListening ? "듣는 중..." : "음성으로 입력"}</MiniButton>
+                <MiniButton onClick={() => setSituationText("")}>입력 지우기</MiniButton>
+              </div>
+              <Textarea label="식별된 위험 요인" value={situationText} onChange={setSituationText} placeholder="전기 배선함 인근 전선 피복이 벗겨져 있어 감전 위험이 있었습니다." />
+              <BottomButton onClick={runStartAndNormalize}>다음</BottomButton>
+            </Screen>
           )}
 
-          {step === 3 && (
-            <FactorStep
-              options={[...CHIPS.사고유형]}
-              value={form.accidentType ? [form.accidentType] : []}
-              onChange={(value) => updateForm("accidentType", value[0] ?? "")}
-              aiRecommended={aiRecommendations.accidentType}
-              recommendationMissing={aiRecommendations.accidentType.length === 0}
-              aiReason={aiNormalized ? `신뢰도 ${Math.round(aiNormalized.confidence * 100)}% 기준 추천입니다.` : undefined}
-              error={Boolean(stepError)}
-              errorMsg={stepError ?? undefined}
-              otherValue={otherInputs.accidentType}
-              onOtherChange={(value) => updateOtherInput("accidentType", value)}
-              otherWarning={otherWarning(form.accidentType, otherInputs.accidentType)}
+          {step === "questions" && (
+            <Screen title="몇 가지 더 여쭤볼게요">
+              <Progress current={questionIndex + 1} total={Math.max(questions.length, 1)} />
+              <div className="mb-3 rounded-2xl border border-[#AFA9EC] bg-[#EEEDFE] p-3">
+                <p className="mb-1 text-[12px] font-bold text-[#3C3489]">AI 질문 {questionIndex + 1} / {questions.length}</p>
+                <p className="text-[14px] font-semibold leading-6">{questions[questionIndex]?.question}</p>
+                <p className="mt-1 text-[12px] leading-5 text-[#5B587A]">{questions[questionIndex]?.reason}</p>
+              </div>
+              <div className="mb-3 grid gap-2">
+                {["예", "아니요", "잘 모르겠습니다"].map((answer) => (
+                  <button key={answer} className="rounded-xl border border-[#D7D7E1] px-3 py-3 text-left text-[13px] font-semibold" onClick={() => saveQuestionAnswer(answer)}>{answer}</button>
+                ))}
+              </div>
+              <input className="mb-2 w-full rounded-xl border border-[#D7D7E1] px-3 py-3 text-[13px]" value={questionDraft} onChange={(event) => setQuestionDraft(event.target.value)} placeholder="직접 입력" />
+              <MiniButton onClick={() => saveQuestionAnswer(questionDraft || "건너뜀")}>다음 질문</MiniButton>
+              <button className="mt-3 w-full text-[12px] font-bold text-[#777783]" onClick={() => setStep("type")}>나머지 질문 건너뛰기</button>
+            </Screen>
+          )}
+
+          {step === "type" && (
+            <Screen title="이 사고의 유형을 선택해주세요">
+              <div className="grid gap-2">
+                {accidentTypes.map((type) => (
+                  <button key={type} className={`rounded-xl border px-3 py-3 text-left text-[13px] font-bold ${selectedAccidentType === type ? "border-[#534AB7] bg-[#EEEDFE] text-[#3C3489]" : "border-[#D7D7E1]"}`} onClick={() => setSelectedAccidentType(type)}>
+                    {type}
+                    {aiType === type && <span className="ml-2 rounded-full bg-[#CECBF6] px-2 py-1 text-[10px] text-[#3C3489]">AI 추천</span>}
+                  </button>
+                ))}
+              </div>
+              <BottomButton onClick={runAnalyze}>다음</BottomButton>
+            </Screen>
+          )}
+
+          {step === "prevention" && (
+            <EditorScreen
+              title="예방 대책을 작성해주세요"
+              value={preventionText}
+              onChange={setPreventionText}
+              suggestion={preventionSuggestion}
+              reason={preventionReason}
+              visible={preventionCardVisible}
+              onApply={(mode) => applyText("prevention", mode)}
+              onNext={() => setStep("action")}
+              extra={
+                <ActionImageCard
+                  status={actionImageStatus}
+                  imageSrc={actionImageSrc}
+                  notice={imageResult?.safety_notice}
+                  limitations={imageResult?.limitations}
+                />
+              }
             />
           )}
 
-          {step === 4 && (
-            <FactorStep
-              options={[...CHIPS.작업유형]}
-              value={form.workType ? [form.workType] : []}
-              onChange={(value) => updateForm("workType", value[0] ?? "")}
-              aiRecommended={aiRecommendations.workType}
-              recommendationMissing={aiRecommendations.workType.length === 0}
-              error={Boolean(stepError)}
-              errorMsg={stepError ?? undefined}
-              otherValue={otherInputs.workType}
-              onOtherChange={(value) => updateOtherInput("workType", value)}
-              otherWarning={otherWarning(form.workType, otherInputs.workType)}
+          {step === "action" && (
+            <EditorScreen
+              title="조치 결과를 작성해주세요"
+              value={actionText}
+              onChange={setActionText}
+              suggestion={actionSuggestion}
+              reason={analyzeResult?.action_guide?.expected_result_example ?? "조치 완료 후 실제 현장 확인이 필요합니다."}
+              visible={actionCardVisible}
+              onApply={(mode) => applyText("action", mode)}
+              onNext={() => setStep("completionPhoto")}
             />
           )}
 
-          {step === 5 && (
-            <FactorStep
-              options={[...CHIPS.위험요인]}
-              value={form.hazards}
-              onChange={(value) => updateForm("hazards", value)}
-              aiRecommended={aiRecommendations.hazards}
-              recommendationMissing={aiRecommendations.hazards.length === 0}
-              multi
-              error={Boolean(stepError)}
-              errorMsg={stepError ?? undefined}
-              otherValue={otherInputs.hazards}
-              onOtherChange={(value) => updateOtherInput("hazards", value)}
-              otherWarning={otherWarning(form.hazards, otherInputs.hazards)}
-            />
-          )}
-
-          {step === 6 && (
-            <FactorStep
-              options={[...CHIPS.환경요인]}
-              value={form.environmentFactors}
-              onChange={(value) => updateForm("environmentFactors", value)}
-              aiRecommended={aiRecommendations.environmentFactors}
-              recommendationMissing={aiRecommendations.environmentFactors.length === 0}
-              multi
-              error={Boolean(stepError)}
-              errorMsg={stepError ?? undefined}
-              otherValue={otherInputs.environmentFactors}
-              onOtherChange={(value) => updateOtherInput("environmentFactors", value)}
-              otherWarning={otherWarning(form.environmentFactors, otherInputs.environmentFactors)}
-            />
-          )}
-
-          {step === 7 && (
-            <FactorStep
-              options={[...CHIPS.인적요인]}
-              value={form.humanFactors}
-              onChange={(value) => updateForm("humanFactors", value)}
-              aiRecommended={aiRecommendations.humanFactors}
-              recommendationMissing={aiRecommendations.humanFactors.length === 0}
-              multi
-              error={Boolean(stepError)}
-              errorMsg={stepError ?? undefined}
-              otherValue={otherInputs.humanFactors}
-              onOtherChange={(value) => updateOtherInput("humanFactors", value)}
-              otherWarning={otherWarning(form.humanFactors, otherInputs.humanFactors)}
-            />
-          )}
-
-          {step === 8 && (
-            <FactorStep
-              options={[...CHIPS.사용장비]}
-              value={form.equipment ? [form.equipment] : []}
-              onChange={(value) => updateForm("equipment", value[0] ?? "")}
-              aiRecommended={aiRecommendations.equipment}
-              recommendationMissing={aiRecommendations.equipment.length === 0}
-              error={Boolean(stepError)}
-              errorMsg={stepError ?? undefined}
-              otherValue={otherInputs.equipment}
-              onOtherChange={(value) => updateOtherInput("equipment", value)}
-              otherWarning={otherWarning(form.equipment, otherInputs.equipment)}
-            />
-          )}
-
-          {step === 9 && (
-            <ConfirmScreen
-              form={form}
-              otherInputs={otherInputs}
-              missingQuestionAnswers={missingQuestionAnswers}
-              missingQuestionPrompts={missingQuestionPrompts}
-              missingFields={missingFields}
-              onEdit={setStep}
-              onSubmit={submitAnalyze}
-              submitting={submitLoading}
-            />
-          )}
-
-          {step === 10 && result && <ResultDetail result={result} onReset={reset} />}
-
-          <AiDebugPanel
-            data={{
-              step,
-              form,
-              normalizeFields: buildNormalizeFields(form, otherInputs),
-              otherInputs,
-              missingQuestionAnswers,
-              missingQuestionPrompts,
-              aiNormalized,
-              analyzeResult: result,
-              normalizeConfidence: aiNormalized?.confidence,
-              analysisReason: result?.analysis_reason,
-              riskScoreReasons: result?.risk_score?.reasons,
-              preventionRanking: result?.prevention_list?.map((item) => ({
-                prevention_id: item.prevention_id,
-                priority: item.priority,
-                recommended_reason: item.recommended_reason,
-              })),
-              actionGuideSummary: result?.action_guide?.summary,
-            }}
-          />
-
-          {step < 9 && step !== 1 && step !== 2 && (
-            <div className="mt-6 flex gap-2">
-              {step > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setStep((current) => Math.max(current - 1, 0))}
-                  className="flex-1 rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-bold text-stone-700"
-                >
-                  이전
-                </button>
+          {step === "completionPhoto" && (
+            <Screen title="조치 완료 사진을 첨부해주세요">
+              <div className="mb-3 grid grid-cols-3 gap-2">
+                <MiniButton onClick={() => startCompletionPhotoPick("camera")}>카메라</MiniButton>
+                <MiniButton onClick={() => startCompletionPhotoPick("gallery")}>갤러리</MiniButton>
+                <MiniButton onClick={() => { setCompletionSourceImage(null); setStep("preview"); }}>나중에 첨부할게요</MiniButton>
+              </div>
+              <div className="mb-3 rounded-2xl border border-dashed border-[#C8C8D3] bg-[#F9F9FC] p-3">
+                {completionSourceImage?.preview_url ? (
+                  <div>
+                    <img src={completionSourceImage.preview_url} alt="조치 완료 사진" className="h-40 w-full rounded-xl object-cover" />
+                    <div className="mt-2 flex gap-2">
+                      <MiniButton onClick={() => startCompletionPhotoPick(completionFileMode)}>재촬영</MiniButton>
+                      <MiniButton onClick={() => startCompletionPhotoPick("gallery")}>다시 선택</MiniButton>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="py-8 text-center text-[13px] text-[#777783]">조치 완료 사진을 첨부해주세요.</p>
+                )}
+              </div>
+              {completionSourceImage && (
+                <BottomButton onClick={() => setStep("preview")}>다음</BottomButton>
               )}
-              <button
-                type="button"
-                onClick={goNext}
-                className="flex-1 rounded-md bg-field-700 px-4 py-2 text-sm font-bold text-white"
-              >
-                다음
-              </button>
-            </div>
+            </Screen>
           )}
 
-          {step === 1 && (
-            <button
-              type="button"
-              onClick={() => setStep(0)}
-              className="mt-6 w-full rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-bold text-stone-700"
-            >
-              이전
-            </button>
+          {step === "preview" && (
+            <Screen title="보고서 미리보기">
+              <Report label="소속 / 계급 / 성명" value="1중대 병장 홍길동" />
+              <Report label="식별 일시" value={occurredAt.replace("T", " ")} />
+              <Report label="식별 장소" value={occurredLocation} />
+              <Report label="글 등록 시간" value={createdAt} />
+              <Report label="사고 유형" value={selectedAccidentType || "미선택"} />
+              <Report label="식별된 위험 요인" value={situationText} />
+              <Report label="예방 대책" value={preventionText || "미입력"} />
+              <Report label="조치 결과" value={actionText || "미입력"} />
+              <div className="mb-2 rounded-xl border border-[#E4E4EA] bg-white p-3">
+                <p className="text-[11px] font-bold text-[#777783]">관련 사진</p>
+                {sourceImage?.preview_url && (
+                  <div className="mt-2">
+                    <p className="mb-1 text-[11px] text-[#777783]">식별 사진</p>
+                    <img className="h-28 w-full rounded-xl object-cover" src={sourceImage.preview_url} alt="식별 사진" />
+                  </div>
+                )}
+                {completionSourceImage?.preview_url ? (
+                  <div className="mt-2">
+                    <p className="mb-1 text-[11px] text-[#777783]">조치 완료 사진</p>
+                    <img className="h-28 w-full rounded-xl object-cover" src={completionSourceImage.preview_url} alt="조치 완료 사진" />
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[13px] text-[#777783]">조치 완료 사진: 없음</p>
+                )}
+              </div>
+              <div className="mb-2 rounded-xl border border-[#E4E4EA] bg-white p-3">
+                <p className="text-[11px] font-bold text-[#777783]">처리 상태</p>
+                {completionSourceImage ? (
+                  <p className="mt-1 text-[13px] font-bold text-[#1D9E75]">조치 완료</p>
+                ) : (
+                  <p className="mt-1 text-[13px] font-bold text-[#D97706]">사진 미첨부 (조치 대기)</p>
+                )}
+              </div>
+              <BottomButton onClick={() => setStep("done")}>등록하기</BottomButton>
+            </Screen>
           )}
 
-          {step === 9 && (
-            <button
-              type="button"
-              onClick={() => setStep(8)}
-              className="mt-4 w-full rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-bold text-stone-700"
-            >
-              이전
-            </button>
+          {step === "done" && (
+            <Screen title="등록이 완료됐어요">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#E1F5EE] text-3xl font-bold text-[#1D9E75]">✓</div>
+              <p className="text-center text-[14px] font-semibold">사고 보고서가 등록됐습니다.</p>
+              {completionSourceImage ? (
+                <p className="mt-3 rounded-xl bg-[#E1F5EE] px-3 py-3 text-center text-[13px] font-bold text-[#1D9E75]">처리 상태: 조치 완료</p>
+              ) : (
+                <p className="mt-3 rounded-xl bg-[#FEF3C7] px-3 py-3 text-center text-[13px] font-bold text-[#D97706]">처리 상태: 사진 미첨부 (조치 대기)</p>
+              )}
+              <BottomButton onClick={() => undefined}>내 사고 관리로 이동</BottomButton>
+            </Screen>
           )}
         </section>
       </div>
@@ -787,67 +724,186 @@ export default function InputFlow() {
   );
 }
 
-interface FactorStepProps {
-  options: string[];
-  aiRecommended?: string[];
-  aiReason?: string;
-  recommendationMissing?: boolean;
-  multi?: boolean;
-  value: string[];
-  onChange: (value: string[]) => void;
-  error?: boolean;
-  errorMsg?: string;
-  otherValue: string;
-  onOtherChange: (value: string) => void;
-  otherWarning?: string;
+function previousStep(step: Step): Step {
+  const index = steps.findIndex(([key]) => key === step);
+  return steps[Math.max(index - 1, 0)]?.[0] ?? "photo";
 }
 
-function FactorStep({
-  options,
-  aiRecommended,
-  aiReason,
-  recommendationMissing,
-  multi,
-  value,
-  onChange,
-  error,
-  errorMsg,
-  otherValue,
-  onOtherChange,
-  otherWarning,
-}: FactorStepProps) {
-  const showOtherInput = value.includes("기타");
+function TopBar({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <div className="grid grid-cols-[32px_1fr_32px] items-center px-4 py-3">
+      <button className="text-xl font-bold text-[#534AB7]" onClick={onBack}>‹</button>
+      <h1 className="text-center text-[15px] font-bold">{title}</h1>
+      <button className="text-lg font-bold text-[#777783]">×</button>
+    </div>
+  );
+}
+
+function StepDots({ step }: { step: Step }) {
+  const current = steps.findIndex(([key]) => key === step);
+  return (
+    <div className="flex items-center justify-center gap-1 px-4 pb-3">
+      {steps.map(([key], index) => (
+        <span key={key} className={`h-2 rounded-full ${index < current ? "w-2 bg-[#1D9E75]" : index === current ? "w-7 bg-[#534AB7]" : "w-2 bg-[#D7D7E1]"}`} />
+      ))}
+    </div>
+  );
+}
+
+function Screen({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="min-h-[560px]">
+      <h2 className="mb-3 text-[18px] font-extrabold tracking-normal">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+function Input({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+  return (
+    <label className="mb-3 block">
+      <span className="mb-1 block text-[12px] font-bold text-[#555560]">{label}</span>
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-xl border border-[#D7D7E1] px-3 py-3 text-[13px] outline-none focus:border-[#534AB7]" />
+    </label>
+  );
+}
+
+function Textarea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+  return (
+    <label className="mb-3 block">
+      <span className="mb-1 block text-[12px] font-bold text-[#555560]">{label}</span>
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={7} className="w-full resize-none rounded-xl border border-[#D7D7E1] px-3 py-3 text-[13px] leading-6 outline-none focus:border-[#534AB7]" />
+    </label>
+  );
+}
+
+function MiniButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return <button className="rounded-xl border border-[#D7D7E1] bg-white px-3 py-3 text-[12px] font-bold text-[#3D3D46]" onClick={onClick}>{children}</button>;
+}
+
+function BottomButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return <button className="mt-4 w-full rounded-2xl bg-[#534AB7] px-4 py-4 text-[14px] font-extrabold text-white shadow-sm" onClick={onClick}>{children}</button>;
+}
+
+function Notice({ children }: { children: ReactNode }) {
+  return <div className="mb-3 rounded-xl border border-[#EF9F27] bg-[#FAEEDA] px-3 py-2 text-[12px] font-semibold text-[#855B18]">{children}</div>;
+}
+
+function Progress({ current, total }: { current: number; total: number }) {
+  return (
+    <div className="mb-3">
+      <div className="mb-1 flex justify-between text-[11px] font-bold text-[#777783]"><span>진행률</span><span>{current} / {total}</span></div>
+      <div className="h-2 rounded-full bg-[#E8E8EF]"><div className="h-2 rounded-full bg-[#534AB7]" style={{ width: `${Math.min(100, (current / total) * 100)}%` }} /></div>
+    </div>
+  );
+}
+
+function ActionImageCard({
+  status,
+  imageSrc,
+  notice,
+  limitations,
+}: {
+  status: ActionImageStatus;
+  imageSrc: string | null;
+  notice?: string | null;
+  limitations?: string[];
+}) {
+  const showImage = status === "success" && imageSrc !== null;
+  const showFallback = status === "error" || status === "idle" || (status === "success" && !imageSrc);
 
   return (
-    <div className="space-y-3">
-      <ChipSelector
-        options={options}
-        value={value}
-        onChange={onChange}
-        aiRecommended={aiRecommended}
-        aiReason={aiReason}
-        multi={multi}
-        error={error}
-        errorMsg={errorMsg}
-        otherWarning={otherWarning}
-      />
-      {recommendationMissing && (
-        <p className="rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600">
-          AI 추천 없음: 입력에서 이 항목을 판단할 단서가 부족합니다.
-        </p>
+    <div className="mt-3 rounded-2xl border border-[#AFA9EC] bg-[#EEEDFE] p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="rounded-full bg-[#CECBF6] px-2 py-1 text-[11px] font-bold text-[#3C3489]">AI 예방 조치 가이드 이미지</span>
+        <span className="text-[11px] font-bold text-[#EF9F27]">증빙 아님</span>
+      </div>
+      {status === "loading" && (
+        <div className="flex items-center justify-center py-6 text-[13px] font-semibold text-[#534AB7]">
+          <span className="mr-2 inline-block animate-spin">⟳</span>AI 이미지 생성 중...
+        </div>
       )}
-      {showOtherInput && (
-        <label className="block">
-          <span className="text-sm font-semibold text-stone-700">기타 내용</span>
-          <textarea
-            value={otherValue}
-            onChange={(event) => onOtherChange(event.target.value)}
-            rows={3}
-            placeholder="표준 분류로 판단할 수 있도록 구체적인 내용을 입력해주세요."
-            className="mt-1 w-full resize-none rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-field-700"
-          />
-        </label>
+      {showImage && (
+        <>
+          <img className="h-44 w-full rounded-xl object-cover" src={imageSrc} alt="AI 생성 조치 가이드 예시" />
+          <p className="mt-2 text-[12px] leading-5 text-[#3C3489]">이 이미지는 예방 조치 가이드용 예시이며 실제 현장 증빙이 아닙니다.</p>
+          {notice && <p className="mt-1 text-[12px] leading-5 text-[#5B587A]">{notice}</p>}
+          {limitations && limitations.length > 0 && (
+            <ul className="mt-1 list-disc pl-4 text-[12px] leading-5 text-[#5B587A]">
+              {limitations.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          )}
+        </>
       )}
+      {showFallback && (
+        <div className="rounded-xl bg-white px-3 py-4 text-center text-[13px] font-semibold text-[#777783]">
+          현재 시연버전에서는 이미지 안내로 대체됩니다.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditorScreen({
+  title,
+  value,
+  onChange,
+  suggestion,
+  reason,
+  visible,
+  onApply,
+  onNext,
+  extra,
+}: {
+  title: string;
+  value: string;
+  onChange: (value: string) => void;
+  suggestion: string;
+  reason: string;
+  visible: boolean;
+  onApply: (mode: "accept" | "append" | "replace" | "reject") => void;
+  onNext: () => void;
+  extra?: ReactNode;
+}) {
+  const hasText = value.trim().length > 0;
+  return (
+    <Screen title={title}>
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={8} className="w-full resize-none rounded-xl border border-[#D7D7E1] px-3 py-3 text-[13px] leading-6 outline-none focus:border-[#534AB7]" />
+      {visible && suggestion && (
+        <div className="mt-3 rounded-2xl border border-[#AFA9EC] bg-[#EEEDFE] p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[12px] font-extrabold text-[#3C3489]">AI 제안</span>
+            <span className="rounded-full bg-[#CECBF6] px-2 py-1 text-[10px] font-bold text-[#3C3489]">추천</span>
+          </div>
+          <p className="whitespace-pre-wrap text-[13px] leading-6">{suggestion}</p>
+          <p className="mt-2 rounded-xl bg-white px-3 py-2 text-[12px] leading-5 text-[#555560]">추천 이유: {reason}</p>
+          <div className="mt-3 grid gap-2">
+            {!hasText ? (
+              <>
+                <MiniButton onClick={() => onApply("accept")}>전체 수락</MiniButton>
+                <MiniButton onClick={() => onApply("reject")}>거부</MiniButton>
+              </>
+            ) : (
+              <>
+                <MiniButton onClick={() => onApply("append")}>기존 내용에 추가</MiniButton>
+                <MiniButton onClick={() => onApply("replace")}>전체 교체</MiniButton>
+                <MiniButton onClick={() => onApply("reject")}>거부</MiniButton>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      {extra}
+      <BottomButton onClick={onNext}>다음</BottomButton>
+    </Screen>
+  );
+}
+
+function Report({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mb-2 rounded-xl border border-[#E4E4EA] bg-white p-3">
+      <p className="text-[11px] font-bold text-[#777783]">{label}</p>
+      <p className="mt-1 whitespace-pre-wrap text-[13px] leading-5">{value || "미입력"}</p>
     </div>
   );
 }
