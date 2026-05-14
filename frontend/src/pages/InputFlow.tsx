@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { analyzeIncident, generateActionImage, normalizeIncident, startCase } from "../api/client";
+import { analyzeIncident, generateActionImage, normalizeIncident, pingBackend, startCase } from "../api/client";
 import type {
   AnalyzeResponse,
   GenerateActionImageResponse,
@@ -371,8 +371,16 @@ export default function InputFlow() {
       setNotice("식별된 위험 요인을 입력해주세요.");
       return;
     }
-    setLoading("AI가 사진과 설명을 정리하고 있어요.");
+    setLoading("서버에 연결 중입니다... (첫 접속 시 최대 1분 소요)");
     setNotice(null);
+    try {
+      await pingBackend();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "서버에 연결할 수 없습니다.");
+      setLoading(null);
+      return;
+    }
+    setLoading("AI가 사진과 설명을 정리하고 있어요.");
     let nextCaseId = caseId;
     try {
       if (!nextCaseId) {

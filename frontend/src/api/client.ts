@@ -77,6 +77,19 @@ export function fetchDbSummary(): Promise<DbSummary> {
   return requestJson<DbSummary>("/dev/db-summary");
 }
 
+export async function pingBackend(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/health`);
+      if (resp.ok) return;
+    } catch {
+      // retry
+    }
+    if (i < 9) await new Promise<void>((resolve) => setTimeout(resolve, 6000));
+  }
+  throw new Error("서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
+}
+
 export function fetchSimilarCases(type?: string, hazard?: string): Promise<SimilarCase[]> {
   const params = new URLSearchParams();
   if (type) params.set("type", type);
