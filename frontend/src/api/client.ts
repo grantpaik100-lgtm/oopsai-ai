@@ -15,23 +15,29 @@ export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  });
+  const url = `${API_BASE_URL}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      ...init,
+    });
+  } catch (networkError) {
+    throw new Error(`네트워크 오류 — 백엔드(${url})에 연결할 수 없습니다.`);
+  }
 
   if (!response.ok) {
-    let message = `API 요청 실패 (${response.status})`;
+    let detail = "";
     try {
       const body = await response.json();
-      message = body.detail ?? message;
+      detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
     } catch {
-      // Keep the status-based message when the response body is not JSON.
+      // body가 JSON이 아닌 경우 무시
     }
-    throw new Error(message);
+    throw new Error(`${response.status} ${detail || response.statusText} (${url})`);
   }
 
   return response.json() as Promise<T>;
