@@ -4,7 +4,23 @@
       "Bash(corepack pnpm *)",
       "Bash(uv run *)",
       "PowerShell(uv run *)",
-      "PowerShell(corepack pnpm *)"
+      "PowerShell(corepack pnpm *)",
+      "PowerShell(cd C:\\\\Users\\\\user\\\\Desktop\\\\oopsai\\\\frontend; npx tsc --noEmit 2>&1; Write-Host \"Exit code: $LASTEXITCODE\")",
+      "PowerShell(Invoke-WebRequest -Uri \"http://127.0.0.1:8000/health\" -Method GET -TimeoutSec 3 2>&1 | Select-Object StatusCode, Content)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:8000/health\" -Method GET -TimeoutSec 3; Write-Host \"OK $\\($r.StatusCode\\) $\\($r.Content\\)\" } catch { Write-Host \"FAIL: $_\" })",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:8000/api/normalize\" -Method OPTIONS -TimeoutSec 3 -Headers @{\"Origin\"=\"http://localhost:5173\";\"Access-Control-Request-Method\"=\"POST\";\"Access-Control-Request-Headers\"=\"content-type\"}; Write-Host \"OPTIONS $\\($r.StatusCode\\)\" } catch { Write-Host \"OPTIONS FAIL: $_\" })",
+      "PowerShell($body = '{\"situation_text\":\"테스트\",\"fields\":{\"hazard_raw\":[],\"environment_factor_raw\":[],\"human_factor_raw\":[]}}'; try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:8000/api/normalize\" -Method POST -Body $body -ContentType \"application/json\" -TimeoutSec 10; Write-Host \"POST /api/normalize $\\($r.StatusCode\\)\" } catch { Write-Host \"FAIL $\\($_.Exception.Response.StatusCode\\): $\\($_.Exception.Message\\)\" })",
+      "PowerShell($body = '{\"submitted_by\":\"test\",\"situation_text\":\"테스트\"}'; try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:8000/api/cases/start\" -Method POST -Body $body -ContentType \"application/json\" -TimeoutSec 10; Write-Host \"POST /api/cases/start $\\($r.StatusCode\\) $\\($r.Content.Substring\\(0,100\\)\\)\" } catch { Write-Host \"FAIL: $_\" })",
+      "PowerShell($body = '{\"normalized\":{\"accident_type\":\"감전\",\"work_type\":\"점검\",\"hazard_major_category\":\"전기 위험\",\"hazard_middle_category\":\"검전 미실시\",\"environment_factors\":[],\"human_factors\":[],\"confidence\":0.5,\"ai_recommendations\":{\"accident_type\":[\"감전\"],\"work_type\":[\"점검\"],\"hazard\":[\"전기 위험\"],\"environment_factors\":[],\"human_factors\":[],\"equipment\":[],\"hazard_raw_matched\":\"\",\"reason\":\"test\"}},\"meta\":{\"submitted_by\":\"test\"}}'; try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:8000/api/analyze\" -Method POST -Body $body -ContentType \"application/json\" -TimeoutSec 15; Write-Host \"POST /api/analyze $\\($r.StatusCode\\)\" } catch { Write-Host \"FAIL $\\($_.Exception.Response.StatusCode.value__\\): $\\($_.Exception.Message.Substring\\(0, [Math]::Min\\(200,$_.Exception.Message.Length\\)\\)\\)\" })",
+      "PowerShell($content = Get-Content \"C:\\\\Users\\\\user\\\\Desktop\\\\oopsai\\\\frontend\\\\dist\\\\assets\\\\index-V4C0EGQk.js\" -Raw; $match = [regex]::Match\\($content, '\\(?:API_BASE_URL|127\\\\.0\\\\.0\\\\.1:\\\\d+|localhost:\\\\d+\\)[^\"]{0,100}'\\); Write-Host $match.Value.Substring\\(0, [Math]::Min\\(200, $match.Value.Length\\)\\))",
+      "PowerShell(cd C:\\\\Users\\\\user\\\\Desktop\\\\oopsai\\\\frontend; npx tsc --noEmit 2>&1; Write-Host \"tsc exit: $LASTEXITCODE\")",
+      "Bash(git push *)",
+      "Bash(py --version)",
+      "Bash(where.exe py *)",
+      "Bash(where.exe python *)",
+      "PowerShell(head *)",
+      "PowerShell(uv *)",
+      "PowerShell(Stop-Process *)"
     ]
   }
 }

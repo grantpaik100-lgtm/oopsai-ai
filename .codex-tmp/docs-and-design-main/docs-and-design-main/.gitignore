@@ -1,0 +1,13 @@
+# 로컬 기획 보조 문서 — GitHub에 올리지 않음
+CLAUDE.md
+log.md
+discussion.md
+decisions.md
+glossary.md
+constraints.md
+roadmap.md
+personas.md
+dependency-graph.md
+
+# Claude Code 하네스 설정
+.claude/
