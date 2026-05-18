@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from openai import OpenAI
 
 from models.schemas import GeneratedImage, GenerateActionImageRequest, GenerateActionImageResponse
+from services.ai_cache import get_cached_json, make_cache_key, set_cached_json
 from services.db import get_connection
 
 router = APIRouter(prefix="/api", tags=["action-image"])
@@ -90,15 +91,27 @@ def _try_generate_openai_image(request: GenerateActionImageRequest) -> GenerateA
     if not os.getenv("OPENAI_API_KEY"):
         return None
 
+    model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
+    cache_key = _action_image_cache_key(request, model)
+    cached = get_cached_json("action_image", cache_key)
+    if isinstance(cached, dict):
+        try:
+            return GenerateActionImageResponse.model_validate(cached)
+        except Exception:
+            pass
+
     prompt = _build_image_prompt(request)
-    client = OpenAI()
+    client = OpenAI(
+        timeout=float(os.getenv("OPENAI_IMAGE_TIMEOUT_SECONDS", "12")),
+        max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "0")),
+    )
 
     if request.source_image and request.source_image.base64_data:
         image_bytes = b64decode(_strip_data_url(request.source_image.base64_data))
         filename = request.source_image.filename or "source.png"
         mime_type = request.source_image.mime_type or "image/png"
         response = client.images.edit(
-            model=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1"),
+            model=model,
             image=(filename, image_bytes, mime_type),
             prompt=prompt,
             size="1024x1024",
@@ -107,7 +120,7 @@ def _try_generate_openai_image(request: GenerateActionImageRequest) -> GenerateA
         )
     else:
         response = client.images.generate(
-            model=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1"),
+            model=model,
             prompt=prompt,
             size="1024x1024",
             quality="low",
@@ -132,7 +145,7 @@ def _try_generate_openai_image(request: GenerateActionImageRequest) -> GenerateA
     if not images:
         return None
 
-    return GenerateActionImageResponse(
+    result = GenerateActionImageResponse(
         case_id=request.case_id,
         images=images,
         safety_notice="이 이미지는 AI 생성 조치 가이드용 예시이며 실제 현장 증빙이 아닙니다.",
@@ -141,6 +154,22 @@ def _try_generate_openai_image(request: GenerateActionImageRequest) -> GenerateA
             "실제 조치 완료 여부는 현장 확인 또는 실제 사진으로 검증해야 합니다.",
         ],
     )
+    set_cached_json(
+        "action_image",
+        cache_key,
+        model,
+        request.model_dump(mode="json"),
+        result.model_dump(mode="json"),
+    )
+    return result
+
+
+def _action_image_cache_key(request: GenerateActionImageRequest, model: str) -> str:
+    payload = request.model_dump(mode="json")
+    source_image = payload.get("source_image")
+    if isinstance(source_image, dict) and source_image.get("base64_data"):
+        source_image["base64_data"] = make_cache_key("source_image", source_image["base64_data"])
+    return make_cache_key("action_image", model, payload)
 
 
 def _save_backend3_snapshot(

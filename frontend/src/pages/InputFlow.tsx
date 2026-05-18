@@ -78,7 +78,8 @@ const steps: Array<[Step, string]> = [
 ];
 
 const accidentTypes = ["화재", "폭발", "떨어짐(추락)", "끼임(협착)", "부딪힘(충격)", "붕괴", "감전", "중독(질식)", "온열질환", "기타"];
-const demoText = "전기 배선함 인근 전선 피복이 벗겨져 있어 감전 위험이 있었습니다. 전원을 차단하지 않은 상태에서 점검하려 했고, 검전도 하지 않았습니다.";
+const demoText =
+  "전기실 배선함 하단에 피복이 벗겨진 전선이 노출되어 있었고, 작업자가 점검 중 손이나 공구가 닿으면 감전될 위험이 있습니다. 주변 정리가 부족하고 접근 통제 표시도 없습니다.";
 
 function nowInputValue() {
   const now = new Date();
@@ -492,25 +493,29 @@ export default function InputFlow() {
       setLoading(null);
     }
 
-    // 백그라운드 이미지 생성 (analyze 완료 직후 즉시 실행, 결과를 기다리지 않음)
-    setActionImageStatus("loading");
-    const actionContent = resultLocal.prevention_list[0]?.content ?? preventionText ?? "확정한 안전 조치를 적용한다.";
-    generateActionImage({
-      case_id: caseId,
-      source_image: sourceImage ? { ...sourceImage, preview_url: undefined } : null,
-      selected_action: { content: actionContent },
-      recommendation_context: nextNormalized.recommendation_context ?? {},
-      image_edit_target: nextNormalized.image_edit_targets?.[0] ?? {
-        description: "사용자가 입력한 위험 요인을 예방 조치한 후의 상태",
-        action_after_text: actionContent,
-        metadata: { source: "frontend_prevention_image_fallback" },
-      },
-    }).then((result) => {
-      setImageResult(result);
-      setActionImageStatus("success");
-    }).catch(() => {
-      setActionImageStatus("error");
-    });
+    if (import.meta.env.VITE_ENABLE_ACTION_IMAGE === "true") {
+      setActionImageStatus("loading");
+      const actionContent = resultLocal.prevention_list[0]?.content ?? preventionText ?? "확정한 안전 조치를 적용한다.";
+      generateActionImage({
+        case_id: caseId,
+        source_image: sourceImage ? { ...sourceImage, preview_url: undefined } : null,
+        selected_action: { content: actionContent },
+        recommendation_context: nextNormalized.recommendation_context ?? {},
+        image_edit_target: nextNormalized.image_edit_targets?.[0] ?? {
+          description: "사용자가 입력한 위험 요인을 예방 조치한 후의 상태",
+          action_after_text: actionContent,
+          metadata: { source: "frontend_prevention_image_fallback" },
+        },
+      }).then((result) => {
+        setImageResult(result);
+        setActionImageStatus("success");
+      }).catch(() => {
+        setActionImageStatus("error");
+      });
+    } else {
+      setImageResult(null);
+      setActionImageStatus("idle");
+    }
 
     setStep("prevention");
   };
@@ -594,7 +599,14 @@ export default function InputFlow() {
           )}
 
           {step === "type" && (
-            <Screen title="이 사고의 유형을 선택해주세요">
+            <Screen title="AI 분석 결과를 확인해주세요">
+              {normalized && <AnalysisSummary normalized={normalized} riskScore={analyzeResult?.risk_score.score ?? null} />}
+              {aiType && (
+                <div className="mb-3 rounded-2xl border border-[#AFA9EC] bg-[#EEEDFE] p-3">
+                  <p className="text-[12px] font-bold text-[#3C3489]">AI가 [{aiType}] 유형을 추천했어요</p>
+                  <p className="mt-1 text-[12px] leading-5 text-[#5B587A]">{normalized?.ai_recommendations.reason || "입력 내용과 분류 규칙을 함께 반영했습니다."}</p>
+                </div>
+              )}
               <div className="grid gap-2">
                 {accidentTypes.map((type) => (
                   <button key={type} className={`rounded-xl border px-3 py-3 text-left text-[13px] font-bold ${selectedAccidentType === type ? "border-[#534AB7] bg-[#EEEDFE] text-[#3C3489]" : "border-[#D7D7E1]"}`} onClick={() => setSelectedAccidentType(type)}>
@@ -609,7 +621,7 @@ export default function InputFlow() {
 
           {step === "prevention" && (
             <EditorScreen
-              title="예방 대책을 작성해주세요"
+              title="AI 예방 대책을 확인해주세요"
               value={preventionText}
               onChange={setPreventionText}
               suggestion={preventionSuggestion}
@@ -618,12 +630,15 @@ export default function InputFlow() {
               onApply={(mode) => applyText("prevention", mode)}
               onNext={() => setStep("action")}
               extra={
-                <ActionImageCard
-                  status={actionImageStatus}
-                  imageSrc={actionImageSrc}
-                  notice={imageResult?.safety_notice}
-                  limitations={imageResult?.limitations}
-                />
+                <>
+                  {analyzeResult && <RecommendationPanel result={analyzeResult} />}
+                  <ActionImageCard
+                    status={actionImageStatus}
+                    imageSrc={actionImageSrc}
+                    notice={imageResult?.safety_notice}
+                    limitations={imageResult?.limitations}
+                  />
+                </>
               }
             />
           )}
@@ -674,8 +689,12 @@ export default function InputFlow() {
               <Report label="식별 장소" value={occurredLocation} />
               <Report label="글 등록 시간" value={createdAt} />
               <Report label="사고 유형" value={selectedAccidentType || "미선택"} />
+              <Report label="위험도" value={analyzeResult?.risk_score ? `${analyzeResult.risk_score.level} · ${analyzeResult.risk_score.score}점` : "AI 분석 전"} />
+              <Report label="AI 분석 결과" value={normalized ? reportAnalysisText(normalized) : "미분석"} />
               <Report label="식별된 위험 요인" value={situationText} />
               <Report label="예방 대책" value={preventionText || "미입력"} />
+              <Report label="유사 사례" value={similarCasesText(analyzeResult)} />
+              <Report label="조치 가이드" value={actionGuideText(analyzeResult)} />
               <Report label="조치 결과" value={actionText || "미입력"} />
               <div className="mb-2 rounded-xl border border-[#E4E4EA] bg-white p-3">
                 <p className="text-[11px] font-bold text-[#777783]">관련 사진</p>
@@ -757,6 +776,125 @@ function Screen({ title, children }: { title: string; children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+function AnalysisSummary({ normalized, riskScore }: { normalized: NormalizedInput; riskScore: number | null }) {
+  const secondary = normalized.secondary_hazards?.map((item) => `${item.major}/${item.middle}`) ?? [];
+  return (
+    <div className="mb-3 grid gap-2">
+      <InfoRow label="사고 유형" value={normalized.accident_type} strong />
+      <InfoRow label="작업 유형" value={normalized.work_type} />
+      <InfoRow label="주요 위험요인" value={`${normalized.hazard_major_category} / ${normalized.hazard_middle_category}`} />
+      <InfoRow label="2차 위험요인" value={secondary.length > 0 ? secondary.join(", ") : "없음"} />
+      <InfoRow label="환경 요인" value={listText(normalized.environment_factors)} />
+      <InfoRow label="인적 요인" value={listText(normalized.human_factors)} />
+      <InfoRow label="장비" value={normalized.equipment || "해당 없음"} />
+      <InfoRow label="신뢰도" value={`${Math.round(normalized.confidence * 100)}%`} />
+      <InfoRow label="위험도 점수" value={riskScore == null ? "예방대책 분석 후 산출" : `${riskScore}점`} />
+    </div>
+  );
+}
+
+function RecommendationPanel({ result }: { result: AnalyzeResponse }) {
+  return (
+    <div className="mt-3 grid gap-2">
+      <div className="rounded-2xl border border-[#E4E4EA] bg-white p-3">
+        <div className="flex items-center justify-between">
+          <p className="text-[12px] font-extrabold text-[#3D3D46]">위험도</p>
+          <span className="rounded-full bg-[#FEE2E2] px-2 py-1 text-[11px] font-bold text-[#B42318]">
+            {result.risk_score.level} · {result.risk_score.score}점
+          </span>
+        </div>
+        {result.risk_score.reasons?.length ? (
+          <p className="mt-2 text-[12px] leading-5 text-[#555560]">{result.risk_score.reasons[0]}</p>
+        ) : null}
+      </div>
+
+      {result.prevention_list.slice(0, 5).map((item) => (
+        <div key={item.prevention_id} className="rounded-2xl border border-[#D7D7E1] bg-white p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="rounded-full bg-[#EEEDFE] px-2 py-1 text-[11px] font-bold text-[#3C3489]">예방대책 {item.priority}</span>
+            <span className="text-[11px] font-bold text-[#777783]">{item.major_category}</span>
+          </div>
+          <div className="mb-2 rounded-xl bg-[#F3F4F8] px-3 py-5 text-center text-[12px] font-bold text-[#777783]">
+            AI 조치 시각화 영역
+          </div>
+          <p className="text-[13px] leading-6">{item.content}</p>
+          {item.recommended_reason && <p className="mt-2 text-[12px] leading-5 text-[#5B587A]">추천 근거: {item.recommended_reason}</p>}
+        </div>
+      ))}
+
+      <div className="rounded-2xl border border-[#E4E4EA] bg-white p-3">
+        <p className="mb-2 text-[12px] font-extrabold text-[#3D3D46]">유사 사례</p>
+        {result.similar_cases.length > 0 ? (
+          <div className="grid gap-2">
+            {result.similar_cases.slice(0, 3).map((item) => (
+              <p key={item.case_id} className="rounded-xl bg-[#F9F9FC] px-3 py-2 text-[12px] leading-5">
+                {item.accident_type} · {item.accident_summary}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[12px] text-[#777783]">현재 조건과 직접 일치하는 유사 사례가 부족합니다.</p>
+        )}
+      </div>
+
+      {result.action_guide && (
+        <div className="rounded-2xl border border-[#E4E4EA] bg-white p-3">
+          <p className="mb-2 text-[12px] font-extrabold text-[#3D3D46]">조치 가이드</p>
+          <p className="text-[13px] leading-6">{result.action_guide.summary}</p>
+          <ul className="mt-2 list-disc pl-4 text-[12px] leading-5 text-[#555560]">
+            {[...result.action_guide.immediate_actions, ...result.action_guide.follow_up_actions].slice(0, 5).map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InfoRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="rounded-xl border border-[#E4E4EA] bg-white px-3 py-2">
+      <p className="text-[11px] font-bold text-[#777783]">{label}</p>
+      <p className={`mt-1 text-[13px] leading-5 ${strong ? "font-extrabold text-[#3C3489]" : "font-semibold text-[#30303A]"}`}>{value || "없음"}</p>
+    </div>
+  );
+}
+
+function listText(values?: string[]) {
+  return values && values.length > 0 ? values.join(", ") : "없음";
+}
+
+function reportAnalysisText(normalized: NormalizedInput) {
+  const secondary = normalized.secondary_hazards?.map((item) => `${item.major}/${item.middle}: ${item.evidence}`) ?? [];
+  return [
+    `작업 유형: ${normalized.work_type}`,
+    `주요 위험요인: ${normalized.hazard_major_category} / ${normalized.hazard_middle_category}`,
+    `2차 위험요인: ${secondary.length > 0 ? secondary.join("; ") : "없음"}`,
+    `환경 요인: ${listText(normalized.environment_factors)}`,
+    `인적 요인: ${listText(normalized.human_factors)}`,
+    `장비: ${normalized.equipment || "해당 없음"}`,
+    `신뢰도: ${Math.round(normalized.confidence * 100)}%`,
+  ].join("\n");
+}
+
+function similarCasesText(result: AnalyzeResponse | null) {
+  if (!result || result.similar_cases.length === 0) return "유사 사례 없음";
+  return result.similar_cases
+    .slice(0, 3)
+    .map((item, index) => `${index + 1}. ${item.accident_type}: ${item.accident_summary}`)
+    .join("\n");
+}
+
+function actionGuideText(result: AnalyzeResponse | null) {
+  if (!result?.action_guide) return "조치 가이드 없음";
+  return [
+    result.action_guide.summary,
+    ...result.action_guide.immediate_actions,
+    ...result.action_guide.follow_up_actions,
+  ].join("\n");
 }
 
 function Input({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {

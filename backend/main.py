@@ -1,3 +1,5 @@
+import os
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +26,17 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/health")
+    def api_health() -> dict[str, object]:
+        return {
+            "status": "ok",
+            "llm_provider": os.getenv("LLM_PROVIDER", "openai"),
+            "llm_model_configured": bool(os.getenv("LLM_MODEL")),
+            "openai_key_configured": bool(os.getenv("OPENAI_API_KEY")),
+            "image_model_configured": bool(os.getenv("OPENAI_IMAGE_MODEL")),
+            "database_url_configured": bool(os.getenv("DATABASE_URL")),
+        }
 
     app.include_router(analyze.router)
     app.include_router(action_image.router)

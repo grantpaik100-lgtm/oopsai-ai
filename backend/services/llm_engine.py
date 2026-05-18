@@ -8,8 +8,13 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 from models.schemas import AnalyzeMeta, NormalizeRequest, NormalizedInput, PreventionItem, SimilarCase
+from services.ai_cache import get_cached_json, make_cache_key, set_cached_json
 from services.classification_rules import build_rule_hints
 from services.taxonomy import map_user_label
+
+_NORMALIZE_CACHE: dict[str, NormalizedInput] = {}
+_ANALYZE_LLM_CACHE: dict[str, dict[str, Any] | None] = {}
+_CACHE_LIMIT = 128
 
 ACCIDENT_TYPES = [
     "끼임",
@@ -469,12 +474,37 @@ def normalize_with_llm(request: NormalizeRequest) -> NormalizedInput:
     if not os.getenv("OPENAI_API_KEY"):
         return mock_normalize(request)
 
+    cache_key = make_cache_key(
+        "normalize",
+        os.getenv("LLM_MODEL", "gpt-5.4-nano"),
+        request.model_dump(mode="json"),
+    )
+    if cache_key in _NORMALIZE_CACHE:
+        return _NORMALIZE_CACHE[cache_key].model_copy(deep=True)
+    cached = get_cached_json("normalize", cache_key)
+    if isinstance(cached, dict):
+        try:
+            normalized = NormalizedInput.model_validate(cached)
+            _remember_cache(_NORMALIZE_CACHE, cache_key, normalized)
+            return normalized.model_copy(deep=True)
+        except Exception:
+            pass
+
     try:
         response = _create_openai_response(request)
         payload = _parse_json_payload(_extract_response_text(response))
         payload["confidence"] = _clamp_confidence(payload.get("confidence"))
         payload = _sanitize_normalized_payload(payload, request)
-        return NormalizedInput.model_validate(payload)
+        normalized = NormalizedInput.model_validate(payload)
+        _remember_cache(_NORMALIZE_CACHE, cache_key, normalized)
+        set_cached_json(
+            "normalize",
+            cache_key,
+            os.getenv("LLM_MODEL", "gpt-5.4-nano"),
+            request.model_dump(mode="json"),
+            normalized.model_dump(mode="json"),
+        )
+        return normalized
     except Exception:
         return mock_normalize(request)
 
@@ -494,6 +524,23 @@ def analyze_with_llm(
         return None
     if not prevention_candidates:
         return None
+
+    cache_key = make_cache_key(
+        "analyze",
+        os.getenv("LLM_MODEL", "gpt-5.4-nano"),
+        normalized.model_dump(mode="json"),
+        [item.model_dump(mode="json") for item in prevention_candidates],
+        [item.model_dump(mode="json") for item in similar_cases],
+        meta.model_dump(mode="json"),
+        raw_input,
+    )
+    if cache_key in _ANALYZE_LLM_CACHE:
+        cached = _ANALYZE_LLM_CACHE[cache_key]
+        return json.loads(json.dumps(cached, ensure_ascii=False)) if cached is not None else None
+    cached = get_cached_json("analyze_llm", cache_key)
+    if isinstance(cached, dict):
+        _remember_cache(_ANALYZE_LLM_CACHE, cache_key, cached)
+        return json.loads(json.dumps(cached, ensure_ascii=False))
 
     candidate_ids = {item.prevention_id for item in prevention_candidates}
     try:
@@ -516,9 +563,28 @@ def analyze_with_llm(
         payload["risk_reasons"] = [
             str(value).strip() for value in payload.get("risk_reasons", []) if str(value).strip()
         ]
+        _remember_cache(_ANALYZE_LLM_CACHE, cache_key, payload)
+        set_cached_json(
+            "analyze_llm",
+            cache_key,
+            os.getenv("LLM_MODEL", "gpt-5.4-nano"),
+            {
+                "normalized": normalized.model_dump(mode="json"),
+                "prevention_candidates": [item.model_dump(mode="json") for item in prevention_candidates],
+                "similar_cases": [item.model_dump(mode="json") for item in similar_cases],
+                "meta": meta.model_dump(mode="json"),
+                "raw_input": raw_input,
+            },
+            payload,
+        )
         return payload
     except Exception:
         return None
+
+def _remember_cache(cache: dict[str, Any], key: str, value: Any) -> None:
+    if len(cache) >= _CACHE_LIMIT:
+        cache.pop(next(iter(cache)))
+    cache[key] = value
 
 
 def _create_analyze_openai_response(
@@ -528,7 +594,7 @@ def _create_analyze_openai_response(
     meta: AnalyzeMeta,
     raw_input: str | None,
 ) -> Any:
-    client = OpenAI()
+    client = _openai_client()
     model = os.getenv("LLM_MODEL", "gpt-5.4-nano")
     user_payload = {
         "normalized": {
@@ -579,12 +645,14 @@ def _create_analyze_openai_response(
 
 
 def _create_openai_response(request: NormalizeRequest) -> Any:
-    client = OpenAI()
+    client = _openai_client()
     model = os.getenv("LLM_MODEL", "gpt-5.4-nano")
+    image_context = _extract_image_context(request)
     user_payload = {
         "situation_text": request.situation_text,
+        "image_context": image_context,
         "fields": request.fields.model_dump(),
-        "rule_hints": build_rule_hints(request.situation_text, request.fields),
+        "rule_hints": build_rule_hints(f"{request.situation_text}\n{image_context}", request.fields),
     }
 
     return client.responses.create(
@@ -607,6 +675,97 @@ def _create_openai_response(request: NormalizeRequest) -> Any:
         max_output_tokens=1200,
         temperature=0,
     )
+
+
+def _extract_image_context(request: NormalizeRequest) -> str:
+    if os.getenv("OPENAI_VISION_ENABLED", "true").lower() not in {"1", "true", "yes", "on"}:
+        return ""
+    image = _first_image_payload(request.images)
+    if image is None:
+        return ""
+    if not os.getenv("OPENAI_API_KEY"):
+        return _fallback_image_context(image)
+
+    vision_model = os.getenv("OPENAI_VISION_MODEL") or os.getenv("LLM_MODEL", "gpt-5.4-nano")
+    cache_key = make_cache_key("vision", vision_model, image)
+    cached = _ANALYZE_LLM_CACHE.get(cache_key)
+    if isinstance(cached, dict):
+        return str(cached.get("image_context") or "")
+    cached_db = get_cached_json("vision", cache_key)
+    if isinstance(cached_db, dict):
+        _remember_cache(_ANALYZE_LLM_CACHE, cache_key, cached_db)
+        return str(cached_db.get("image_context") or "")
+
+    try:
+        data_url = _image_data_url(image)
+        if not data_url:
+            return _fallback_image_context(image)
+        client = OpenAI(
+            timeout=float(os.getenv("OPENAI_VISION_TIMEOUT_SECONDS", "8")),
+            max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "0")),
+        )
+        response = client.responses.create(
+            model=vision_model,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "군 아차사고 등록을 위해 현장 사진에서 보이는 위험요인을 한국어로 "
+                                "짧게 추출하세요. 사고유형 후보, 보이는 장비/장소, 전선·보호구·통제표지·"
+                                "정리정돈·추락/충돌/화재/감전 단서를 중심으로 2~4문장만 답하세요. "
+                                "불확실하면 추정이라고 명시하세요."
+                            ),
+                        },
+                        {"type": "input_image", "image_url": data_url},
+                    ],
+                }
+            ],
+            max_output_tokens=220,
+            temperature=0,
+        )
+        image_context = _extract_response_text(response).strip()
+        if image_context:
+            cached_context = {"image_context": image_context}
+            _remember_cache(_ANALYZE_LLM_CACHE, cache_key, cached_context)
+            set_cached_json("vision", cache_key, vision_model, image, cached_context)
+            return image_context
+    except Exception:
+        return _fallback_image_context(image)
+    return _fallback_image_context(image)
+
+
+def _first_image_payload(images: Any) -> dict[str, Any] | None:
+    if not isinstance(images, list):
+        return None
+    for item in images:
+        if isinstance(item, dict):
+            return item
+    return None
+
+
+def _image_data_url(image: dict[str, Any]) -> str:
+    base64_data = str(image.get("base64_data") or "").strip()
+    if not base64_data:
+        return ""
+    if base64_data.startswith("data:image/"):
+        return base64_data
+    mime_type = str(image.get("mime_type") or "image/jpeg")
+    return f"data:{mime_type};base64,{base64_data}"
+
+
+def _fallback_image_context(image: dict[str, Any]) -> str:
+    filename = str(image.get("filename") or "").strip()
+    suffix = f" 파일명: {filename}." if filename else ""
+    return f"현장 사진이 첨부되었습니다.{suffix} 사진 분석이 지연되어 텍스트 입력을 중심으로 분석합니다."
+
+
+def _openai_client() -> OpenAI:
+    timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "8"))
+    max_retries = int(os.getenv("OPENAI_MAX_RETRIES", "0"))
+    return OpenAI(timeout=timeout, max_retries=max_retries)
 
 
 def _extract_response_text(response: Any) -> str:
@@ -778,6 +937,13 @@ def _sanitize_normalized_payload(payload: dict[str, Any], request: NormalizeRequ
         if payload.get("accident_type") == "과부하·온열":
             payload["accident_type"] = "화재·화상"
 
+    if any(kw in source_text for kw in ["피복", "노출 전선", "벗겨진 전선", "전선이 노출", "누전"]) and any(
+        kw in source_text for kw in ["감전", "전선", "전기", "배선함"]
+    ):
+        payload["accident_type"] = "감전"
+        payload["hazard_major_category"] = "장비요인"
+        payload["hazard_middle_category"] = "장비결함"
+
     payload["work_type"] = _standard_work_type(str(payload.get("work_type") or ""), "")
     payload["equipment"] = _standard_equipment(payload.get("equipment"))
     if payload["equipment"] == "기타" and _standard_equipment(explicit_equipment) is None:
@@ -829,6 +995,8 @@ def _sanitize_normalized_payload(payload: dict[str, Any], request: NormalizeRequ
         "ai_recommendations"
     ]["hazard"]:
         payload["ai_recommendations"]["hazard"].append("작업통제부족")
+    if payload.get("hazard_middle_category") == "장비결함" and "장비결함" not in payload["ai_recommendations"]["hazard"]:
+        payload["ai_recommendations"]["hazard"].insert(0, "장비결함")
     if not payload["ai_recommendations"]["equipment"] and payload.get("equipment") in STANDARD_EQUIPMENT_VALUES:
         payload["ai_recommendations"]["equipment"] = [payload["equipment"]]
     if payload.get("equipment") is None:
