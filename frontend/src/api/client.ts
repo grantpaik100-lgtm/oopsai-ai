@@ -21,6 +21,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(url, {
       headers: {
         "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
         ...(init?.headers ?? {}),
       },
       ...init,
